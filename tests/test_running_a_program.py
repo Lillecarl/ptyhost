@@ -44,12 +44,15 @@ async def until(said, text: str) -> None:
         await asyncio.sleep(TICK)
 
 
-def running(program: str, said, ended=None, linger: bool = True):
+def running(program: str, said, ended=None, linger: bool = True, priority=None):
     "A `Process` on a python program, sized and started."
     command = [sys.executable, "-c", program + (LINGER if linger else "")]
     backend = PosixBackend.from_command(command)
     process = Process(
-        backend=backend, receive=said.append, done_callback=ended
+        backend=backend,
+        receive=said.append,
+        done_callback=ended,
+        has_priority=priority,
     )
     process.set_size(80, 24)
     process.start()
@@ -162,6 +165,37 @@ async def test_a_suspended_program_is_not_read():
         await until(said, "late")
     finally:
         process.kill()
+
+
+async def test_several_programs_that_nobody_watches_are_still_read():
+    """
+    A program that nobody is looking at waits for a turn of the event
+    loop that nothing else wants, or for its deadline, whichever comes
+    first. **The deadline is what makes this safe**, and it is easy to
+    lose: the re-queues that each waiting program makes are what keeps
+    the loop busy for the others, so with more than one of them an idle
+    loop never comes.
+
+    pymux froze entirely on two panes of Claude Code for exactly that
+    reason, for as long as a deadline of `time.time() + 1` was read as
+    a duration and landed fifty-seven years out. Lillecarl/pymux#122.
+    """
+    watched = [[] for _ in range(4)]
+    nobody_is_looking = lambda: False  # noqa: E731
+    programs = [
+        running(
+            "print('pane %d', flush=True)" % number,
+            said,
+            priority=nobody_is_looking,
+        )
+        for number, said in enumerate(watched)
+    ]
+    try:
+        for number, said in enumerate(watched):
+            await until(said, "pane %d" % number)
+    finally:
+        for process in programs:
+            process.kill()
 
 
 @pytest.mark.parametrize("text", ["ä", "日本", "🙂"])
