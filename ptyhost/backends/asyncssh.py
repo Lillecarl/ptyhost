@@ -62,6 +62,9 @@ class AsyncSSHBackend(Backend):
                 command=self.command,
                 request_pty=True,
                 term_type="xterm",
+                # The size a VT100 had, which is what a terminal that
+                # has not been measured yet reports everywhere. The
+                # pane sends its own size as soon as it knows it.
                 term_size=(24, 80),
                 encoding="utf-8",
             )
@@ -87,6 +90,15 @@ class AsyncSSHBackend(Backend):
             self._reader_connected = False
 
     def read_text(self, amount: int = 4096) -> str:
+        """
+        Everything that has arrived, decoded.
+
+        `amount` is ignored. It is there because the other backends
+        take it, and asyncssh hands over whole reads rather than a
+        stream this can cut. The default matches the posix backend's
+        page so that a caller reading either one sees the same
+        signature.
+        """
         result = "".join(self._receive_buffer)
         self._receive_buffer = []
         return result

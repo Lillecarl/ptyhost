@@ -217,6 +217,8 @@ def record(
                 continue
 
             if keyboard is not None and keyboard in readable:
+                # A page. What the keyboard gives is keystrokes and a
+                # paste, so a read is nearly always far under this.
                 keys = os.read(keyboard, 4096)
                 if keys:
                     os.write(master, keys)
@@ -235,6 +237,11 @@ def record(
 
             if master in readable:
                 try:
+                    # Sixteen pages, and not the one that the keyboard
+                    # reads. This side carries what the program draws,
+                    # which arrives in bursts: a full screen of colour
+                    # is tens of kilobytes, and a read that stops short
+                    # of a burst costs another trip round `select`.
                     data = os.read(master, 65536)
                 except OSError:
                     break

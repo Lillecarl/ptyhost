@@ -106,6 +106,9 @@ class PipeReader:
         return f
 
     async def _async_reader(self):
+        # Sixteen pages. This side carries what the program drew, which
+        # arrives in bursts, and it is the same size the recorder reads
+        # the master with on posix.
         buffer_size = 65536
         c_read = DWORD()
         buffer = ctypes.create_string_buffer(buffer_size + 1)

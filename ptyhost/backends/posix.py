@@ -85,6 +85,7 @@ class PosixBackend(Backend):
             self._reader_connected = False
 
     def read_text(self, amount=4096):
+        "At most a page of what the program drew, decoded."
         return self._reader.read(amount)
 
     def write_text(self, text):
