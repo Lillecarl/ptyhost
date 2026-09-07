@@ -8,6 +8,17 @@ class Backend(metaclass=abc.ABCMeta):
     Base class for the terminal backend-interface.
     """
 
+    #: The process id of the program, or `None` when this backend has
+    #: no number to give: a program at the other end of an ssh
+    #: connection runs on another machine, and a program that has not
+    #: started yet has no id.
+    #:
+    #: **It is here so that a reader can ask.** `pymux` read it with
+    #: `getattr(backend, "pid", None)`, which answers the same for a
+    #: backend that has no id and for a field somebody renamed.
+    #: Lillecarl/pymux#138.
+    pid = None
+
     def add_input_ready_callback(self, callback):
         """
         Add a new callback to be called for when there's input ready to read.
