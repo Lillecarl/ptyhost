@@ -82,9 +82,18 @@ class PtyReader:
             if data == b"":
                 self.closed = True
                 return ""
-        except OSError:
+        except InterruptedError:
             # SIGWINCH interrupts the read.
             data = b""
+        except OSError:
+            # **This is the end of the file on a pty.** A master whose
+            # slave side is all closed answers `EIO` rather than with
+            # zero bytes, so the test above never fires for one, and
+            # `closed` stayed false for the life of the server. A pane
+            # whose program had exited read as alive.
+            # Lillecarl/pymux#120.
+            self.closed = True
+            return ""
 
         return self._decoder.decode(data)
 
