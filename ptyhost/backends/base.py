@@ -19,6 +19,17 @@ class Backend(metaclass=abc.ABCMeta):
     #: Lillecarl/pymux#138.
     pid = None
 
+    def close(self):
+        """
+        Let go of what carries the program's output, once a read says
+        there is nothing more to come.
+
+        A backend that has nothing to let go of does nothing here. The
+        one that has is the pty: its master side outlives the program,
+        because what the kernel still holds is read on the turns of
+        the loop after the child is reaped. Lillecarl/pymux#121.
+        """
+
     def add_input_ready_callback(self, callback):
         """
         Add a new callback to be called for when there's input ready to read.

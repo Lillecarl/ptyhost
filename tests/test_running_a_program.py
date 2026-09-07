@@ -5,11 +5,13 @@ A program on a pty, from end to end.
 writes back what a caller sends. Nothing here parses any of it, which
 is the whole shape of this package.
 
-**Every program below waits at the end instead of exiting.** What a
-program writes just before it exits is sometimes lost, because the
-reaper closes the pty without draining it (Lillecarl/pymux#121). A
-test that ends its program at once is a test that fails once in a
-dozen runs for a reason that has nothing to do with what it asks.
+**Most programs below wait at the end instead of exiting.** They were
+written that way because what a program wrote just before it exited
+was sometimes lost: the reaper closed the pty without draining it, so
+a test that ended its program at once failed about once in a dozen
+runs for a reason that had nothing to do with what it asked. The reap
+drains now (Lillecarl/pymux#121), and `linger=False` says so where it
+is the point.
 """
 import asyncio
 import sys
@@ -124,15 +126,47 @@ async def test_the_end_of_a_program_is_reported():
         process.kill()
 
 
-@pytest.mark.xfail(reason="Lillecarl/pymux#120", strict=True)
+@pytest.mark.parametrize("run", range(12))
+async def test_the_last_thing_a_program_writes_arrives(run):
+    """
+    A program writes and exits at once, and every character of it
+    reaches the screen.
+
+    It did not. The reaper closed the pty without reading it, so what
+    the kernel still held went with it whenever the loop had not
+    turned since the write. Eleven of twelve runs arrived, and the one
+    that failed lost the lot.
+
+    That is the last thing a program draws before it quits, which is
+    often the thing a person wanted: the error a build printed as it
+    died, the summary a test runner writes on its last line. Twelve
+    runs, because once is not a measurement of a race.
+    Lillecarl/pymux#121.
+    """
+    said = []
+    ended = asyncio.Event()
+    process = running(
+        "import sys; sys.stdout.write('the last word'); sys.stdout.flush()",
+        said,
+        ended.set,
+        linger=False,
+    )
+    try:
+        await asyncio.wait_for(ended.wait(), TIMEOUT)
+        await until(said, "the last word")
+    finally:
+        process.kill()
+
+
 async def test_a_program_that_ended_is_terminated():
     """
     `is_terminated` says there is nothing more to read.
 
-    It never becomes true. The reader sets its flag on a read that
+    It never became true. The reader sets its flag on a read that
     gives back nothing, and nothing reads after the child is reaped:
-    `_waitpid` removes the reader and closes the pty. So a pane whose
-    program has exited reads as alive for the life of the server.
+    `_waitpid` takes the reader away and closes the pty. So a pane
+    whose program had exited read as alive for the life of the server,
+    and `#{pane_dead}` answered "0" forever.
     Lillecarl/pymux#120.
     """
     said = []
@@ -163,6 +197,29 @@ async def test_a_suspended_program_is_not_read():
         assert "late" not in "".join(said)
         process.resume()
         await until(said, "late")
+    finally:
+        process.kill()
+
+
+async def test_a_program_that_ends_while_suspended_waits_for_the_resume():
+    """
+    Copy mode stops a pane, and the promise is that no row of the
+    screen changes while a person reads it. A program that ends in the
+    meantime does not get to break that: its last words wait for the
+    resume, the way anything else it wrote does.
+
+    The reap makes the end of the file reachable (Lillecarl/pymux#121),
+    so the reader has something to give the moment it goes back on the
+    loop. It may not go back by itself.
+    """
+    said = []
+    process = running("print('last', flush=True)", said, linger=False)
+    try:
+        process.suspend()
+        await asyncio.sleep(0.4)
+        assert "last" not in "".join(said)
+        process.resume()
+        await until(said, "last")
     finally:
         process.kill()
 

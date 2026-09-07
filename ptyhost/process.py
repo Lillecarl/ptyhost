@@ -181,8 +181,16 @@ class Process:
 
                 _when_the_loop_is_free(do_asap, time.time() + POSTPONE)
         else:
-            # End of stream. Remove child.
-            self.backend.disconnect_reader()
+            # End of stream. Remove child, and let the pty go.
+            #
+            # **The reap cannot do it.** A program writes its last
+            # words and exits, and the kernel still holds them; they
+            # are read on the turns of the loop after the reap, and a
+            # close there threw them away. So the reap closes the
+            # slave side, which is what makes this read reach the end
+            # of the file, and this closes the rest.
+            # Lillecarl/pymux#121.
+            self.backend.close()
 
     def suspend(self) -> None:
         """

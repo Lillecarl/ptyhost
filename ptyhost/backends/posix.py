@@ -1,3 +1,4 @@
+import logging
 import os
 import resource
 import signal
@@ -8,6 +9,8 @@ from asyncio import Future, get_event_loop
 
 from .base import Backend
 from .posix_utils import PtyReader, pty_make_controlling_tty, set_terminal_size
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["PosixBackend"]
 
@@ -77,6 +80,21 @@ class PosixBackend(Backend):
 
     @property
     def closed(self):
+        """
+        Is there nothing more to read from this program?
+
+        **Two things say so, and only one of them used to.** A read
+        that gives back nothing sets the flag on the reader, and that
+        is the end of the pty while the child may still be alive.
+        Reaping the child is the other, and `_waitpid` marks it by
+        resolving `ready_f`.
+
+        Nothing reads after a reap: `_waitpid` takes the reader away
+        and closes the pty. So the reader's flag stayed false for the
+        life of the server, and a pane whose program had exited read
+        as alive. `Win32Backend` already answers with `ready_f`.
+        Lillecarl/pymux#120.
+        """
         return self._reader.closed
 
     def disconnect_reader(self):
@@ -207,6 +225,21 @@ class PosixBackend(Backend):
             # sufficient. (I hope...)
             os.closerange(3, 4096)
 
+    def close(self):
+        """
+        Let the pty go, once there is nothing more to read from it.
+
+        `Process` calls this when a read says the file has ended. The
+        reap cannot: what the kernel still holds for the master side
+        is read on the turns of the loop after it, and closing there
+        would throw that away. Lillecarl/pymux#121.
+        """
+        self.disconnect_reader()
+
+        if self.master is not None:
+            os.close(self.master)
+            self.master = None
+
     def _waitpid(self):
         """
         Create an executor that waits and handles process termination.
@@ -218,14 +251,33 @@ class PosixBackend(Backend):
             self.loop.call_soon(done)
 
         def done():
-            "PID received. Back in the main thread."
-            # Close pty and remove reader.
+            """
+            PID received. Back in the main thread.
 
-            self.disconnect_reader()
-            os.close(self.master)
+            **The slave side goes and the master stays.** A reap used
+            to close both at once, so whatever the kernel still held
+            went with them: the error a build printed as it died was
+            lost about one time in twelve, whenever the loop had not
+            turned since the write. Lillecarl/pymux#121.
+
+            Closing the slave is what makes the end of the file
+            reachable. While this process holds it open a read of the
+            master answers with nothing; with it closed the loop hands
+            over what is left and then an `EIO`, which `PtyReader`
+            takes as the end. That read is also what makes
+            `is_terminated` true. Lillecarl/pymux#120.
+
+            `Process._read` calls `close` when it gets there.
+            """
             os.close(self.slave)
+            self.slave = None
 
-            self.master = None
+            # **The reader is left as it is.** Putting it back on the
+            # loop here would read a pane that copy mode has stopped,
+            # and copy mode is the promise that no row of the screen
+            # changes while a person reads it. A resume picks the last
+            # words up, the way it picks up anything else a program
+            # wrote while nobody was reading.
 
             # Callback.
             self.ready_f.set_result(None)
