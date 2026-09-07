@@ -1,0 +1,37 @@
+[tool.pytest.ini_options]
+# Run a coroutine test, with no mark on it.
+#
+# Without this, pytest fails an "async def test" with "async def
+# functions are not natively supported". So the cost is loud, and it is
+# that no async test in this repository can run at all.
+#
+# `testSources` in `default.nix` carries this file to the suite. A
+# setting the check cannot read is a setting that holds by hand and not
+# where it counts.
+anyio_mode = "auto"
+
+[tool.ruff]
+target-version = "py310"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "C",  # flake8-comprehensions
+    "T",  # Print.
+    "I",  # isort
+    "UP",  # pyupgrade
+    "RUF100",  # unused-noqa
+    "Q",  # quotes
+]
+ignore = [
+    "E501",  # Line too long, handled by black
+    "C901",  # Too complex
+    "E722",  # bare except.
+]
+
+
+[tool.ruff.per-file-ignores]
+
+
+[tool.ruff.isort]
+known-first-party = ["ptyhost"]
