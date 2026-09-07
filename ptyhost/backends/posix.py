@@ -132,6 +132,11 @@ class PosixBackend(Backend):
             # FDs.) Resizing the pty, when the child is still in our Python
             # code and has the signal handler from prompt_toolkit, but closed
             # the 'fd' for 'call_from_executor', will cause OSError.
+            #
+            # **No reason was found for a tenth of a second.** Nothing
+            # measured it, and a sleep cannot close this race at all:
+            # it only makes the window unlikely. Whatever the right fix
+            # is, it is a handshake and not a longer number here.
             time.sleep(0.1)
 
             self.pid = pid
@@ -175,6 +180,11 @@ class PosixBackend(Backend):
             self.exec_func()
         except Exception:
             traceback.print_exc()
+
+            # The traceback went to the pty, which is the pane. Exiting
+            # now would close the pane with it and the person would see
+            # nothing. Five seconds is long enough to read that
+            # something went wrong and to copy the first line of it.
             time.sleep(5)
 
             os._exit(1)
