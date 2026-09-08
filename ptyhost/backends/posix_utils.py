@@ -1,6 +1,7 @@
 """
 Some utilities.
 """
+
 import array
 import fcntl
 import os

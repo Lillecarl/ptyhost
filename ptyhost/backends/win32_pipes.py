@@ -2,6 +2,7 @@
 Abstractions on top of Win32 pipes for integration in the prompt_toolkit event
 loop.
 """
+
 import ctypes
 from asyncio import Event, Future, ensure_future, get_event_loop
 from ctypes import (

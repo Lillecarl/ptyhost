@@ -57,6 +57,7 @@ capture is meant to hold that.
 piece of the work in front of you. Read one before it goes into a
 repository.
 """
+
 import argparse
 import base64
 import fcntl
@@ -272,9 +273,7 @@ def record(
     output.write_bytes(b"".join(written))
     reads.write_text(json.dumps({"lines": lines, "columns": columns, "sizes": sizes}))
     session.write_text(
-        json.dumps(
-            {"lines": lines, "columns": columns, "term": term, "events": events}
-        )
+        json.dumps({"lines": lines, "columns": columns, "term": term, "events": events})
     )
     keys = sum(1 for event in events if event[1] == "in")
     print(

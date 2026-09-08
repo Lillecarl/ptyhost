@@ -10,6 +10,7 @@ Both matter for the reason the recorder exists. Claude Code does not
 end, and quitting it would draw the screen it gives back over the screen
 that was being recorded.
 """
+
 import json
 import sys
 import time
@@ -173,9 +174,7 @@ def test_the_program_does_not_outlive_the_recording(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("flag", ["--idle", "--timeout"])
 def test_a_negative_wait_is_refused(tmp_path, flag, monkeypatch):
-    monkeypatch.setattr(
-        sys, "argv", ["ptyhost-record", "x", flag, "-1", "--", "true"]
-    )
+    monkeypatch.setattr(sys, "argv", ["ptyhost-record", "x", flag, "-1", "--", "true"])
     with pytest.raises(SystemExit) as refused:
         record.main()
     assert refused.value.code != 0

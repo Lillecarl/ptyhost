@@ -10,6 +10,7 @@ screen answers to "CSI 16 t", so whoever holds the screen passes it
 down. The cell here is a number for the test to count with, and not a
 claim about anything.
 """
+
 import array
 import fcntl
 import os

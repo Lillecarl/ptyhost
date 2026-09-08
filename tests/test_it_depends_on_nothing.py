@@ -10,6 +10,7 @@ So this reads the imports of every module and holds them to the rule.
 An import that breaks it fails here, and not in a widget a month
 later.
 """
+
 import ast
 from pathlib import Path
 
@@ -81,11 +82,7 @@ def test_no_module_imports_a_third_party_package(path):
     terminal, so each one has to be argued for rather than added.
     """
     outside = _outside_imports(path) - MAY_IMPORT_OUTSIDE
-    unknown = {
-        name
-        for name in outside
-        if name and name not in _STANDARD_LIBRARY
-    }
+    unknown = {name for name in outside if name and name not in _STANDARD_LIBRARY}
     assert unknown == set(), "%s imports %s" % (path.name, sorted(unknown))
 
 

@@ -13,6 +13,7 @@ runs for a reason that had nothing to do with what it asked. The reap
 drains now (Lillecarl/pymux#121), and `linger=False` says so where it
 is the point.
 """
+
 import asyncio
 import sys
 
@@ -188,9 +189,7 @@ async def test_a_suspended_program_is_not_read():
     reads it, and a resume picks up what it wrote in the meantime.
     """
     said = []
-    process = running(
-        "import time\ntime.sleep(0.2)\nprint('late', flush=True)", said
-    )
+    process = running("import time\ntime.sleep(0.2)\nprint('late', flush=True)", said)
     try:
         process.suspend()
         await asyncio.sleep(0.4)
