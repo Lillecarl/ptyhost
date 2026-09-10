@@ -3,7 +3,6 @@ The child process.
 """
 
 import logging
-import time
 from asyncio import get_event_loop
 from typing import Callable
 
@@ -13,38 +12,34 @@ __all__ = ["Process"]
 
 logger = logging.getLogger(__name__)
 
-#: How long a pane that nobody is looking at may wait before its output
-#: is parsed, in seconds. One second means that a saturated machine
-#: still parses a thousand bytes a second for such a pane, which is
-#: enough that the interface never feels stuck.
-POSTPONE = 1.0
 
-
-def _when_the_loop_is_free(work: Callable[[], None], deadline: float) -> None:
+def _behind_what_is_already_queued(work: Callable[[], None]) -> None:
     """
-    Run `work` when the event loop has nothing else to do, or at
-    `deadline`, whichever comes first.
+    Run `work` after the callbacks the loop has queued now.
 
-    asyncio runs what is scheduled in the order it arrives, and that is
-    the wrong order here: parsing the output of a pane that nobody is
-    looking at may wait, and drawing for the person who is looking may
-    not. A deadline keeps the wait from becoming a starve.
+    Parsing the output of a pane that nobody is looking at may wait,
+    and drawing for the person who is looking may not. asyncio's
+    `_ready` is first in, first out, so one `call_soon` is that yield:
+    everything queued before this runs before it.
 
-    This was `prompt_toolkit.eventloop.call_soon_threadsafe` with a
-    `max_postpone_time`. Nothing in it is a toolkit's: it reads
-    asyncio's own queue. Lillecarl/pymux#85.
+    **It used to poll for an idle loop, and an idle loop never comes.**
+    The test was `_ready` empty, retried on every turn until a
+    deadline. Anything that animates keeps `_ready` full -- a
+    prompt_toolkit redraw postpones itself by reposting on every turn,
+    so two pollers waited for each other and neither ever won. With
+    cmatrix in a window nobody looked at and one animating pane in the
+    window somebody did:
+
+        polling for an idle loop   100% of a core,  5 frames in 5s
+        this                        12% of a core, 31 frames in 5s
+
+    The frames go up because the loop stops spending its turns on the
+    question. Bounding the poll to one turn, or to eight, measured the
+    same as no poll at all, which is what says the polling never bought
+    a thing. Lillecarl/pymux#253, and Lillecarl/pymux#85 for why this
+    is here and not in a toolkit.
     """
-    loop = get_event_loop()
-
-    def again() -> None:
-        # `_ready` is what asyncio has queued. uvloop has no such
-        # attribute, and then there is nothing to wait for.
-        if not getattr(loop, "_ready", []) or time.time() > deadline:
-            work()
-            return
-        loop.call_soon_threadsafe(again)
-
-    loop.call_soon_threadsafe(again)
+    get_event_loop().call_soon(work)
 
 
 class Process:
@@ -180,7 +175,7 @@ class Process:
                     if not self.suspended:
                         self.backend.connect_reader()
 
-                _when_the_loop_is_free(do_asap, time.time() + POSTPONE)
+                _behind_what_is_already_queued(do_asap)
         else:
             # End of stream. Remove child, and let the pty go.
             #
