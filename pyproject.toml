@@ -30,6 +30,11 @@ dependencies = [
 test = [
     "pytest",
     "anyio",
+    # The remote backend. `ptyhost.backends.asyncssh` imports it at the
+    # top, and `backends/__init__.py` imports only `base`, so nothing
+    # pulls it in at run time -- a person who wants a remote pane
+    # installs it. A test that drives that backend has to have it.
+    "asyncssh",
 ]
 
 [project.urls]

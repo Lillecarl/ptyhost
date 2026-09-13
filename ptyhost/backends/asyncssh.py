@@ -1,4 +1,5 @@
-from asyncio import Future, get_event_loop
+import logging
+from asyncio import Future, Task, get_event_loop
 from typing import Callable, List
 
 from asyncssh import SSHClientChannel, SSHClientConnection, SSHClientSession
@@ -6,6 +7,8 @@ from asyncssh import SSHClientChannel, SSHClientConnection, SSHClientSession
 from .base import Backend
 
 __all__ = ["AsyncSSHBackend"]
+
+logger = logging.getLogger(__name__)
 
 
 class AsyncSSHBackend(Backend):
@@ -69,7 +72,35 @@ class AsyncSSHBackend(Backend):
                 encoding="utf-8",
             )
 
-        self.loop.create_task(run())
+        # Held, and asked what it did. A task nobody holds may be collected
+        # while it still runs, and what it raised is delivered nowhere until
+        # the loop shuts down. Lillecarl/pymux#265.
+        self._starting = self.loop.create_task(run())
+        self._starting.add_done_callback(self._session_started)
+
+    def _session_started(self, task: "Task[None]") -> None:
+        """
+        What happened to the session this backend asked for.
+
+        `create_session` raises for everything a remote can refuse: the
+        host, the credentials, the command, the pty. Nothing awaits the
+        task that calls it, so this is the only place that failure can be
+        heard at all.
+
+        `ready_f` is resolved either way. A caller waits on it through a
+        done callback that means "the program ended", and a session that
+        was never made has ended as surely as one that exited. Left
+        pending, it is a pane that waits for ever with nothing in any log.
+        """
+        if task.cancelled():
+            return
+
+        error = task.exception()
+        if error is not None:
+            logger.error("Could not start the remote session: %s", error)
+
+        if not self.ready_f.done():
+            self.ready_f.set_result(None)
 
     def add_input_ready_callback(self, callback: Callable[[], None]) -> None:
         if not self._reader_connected:
