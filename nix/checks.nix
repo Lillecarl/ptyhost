@@ -3,30 +3,22 @@
 # It declares its own inputs, so `default.nix` holds the package and carries
 # nothing that only a test needs.
 #
-# `package` and `testSources` come from `default.nix`: the first because a
+# `testEnv` and `testSources` come from `default.nix`: the first because a
 # suite runs against the installed package, the second because it knows where
 # the repository root is and this file does not.
 #
 # `nix/suite.nix` says why a check is two derivations.
 {
-  python,
-  pytest,
-  anyio,
+  # The python the suite runs on: a virtualenv of ptyhost, what ptyhost
+  # declares, and its `test` extra. `default.nix` builds it from
+  # `pyproject.toml`, so what a suite may import is what the package
+  # declares and there is no second list here. Lillecarl/pymux#319.
+  testEnv,
   callPackage,
-  package,
   testSources,
 }:
 let
   inherit (callPackage ./suite.nix { }) suite;
-
-  # anyio carries the pytest plugin that runs a coroutine test. Without it
-  # pytest fails one with "async def functions are not natively supported",
-  # so no async test in this repository runs at all.
-  pythonWithTests = python.withPackages (ps: [
-    package
-    pytest
-    anyio
-  ]);
 
   # Narrow a run to one file or one test while hunting:
   #
@@ -48,7 +40,7 @@ in
   # compare against, because this package holds none.
   unit = suite {
     name = "ptyhost-unit";
-    inputs = [ pythonWithTests ];
+    inputs = [ testEnv ];
     env = { inherit selection; };
     setup = prepare;
   } "python -m pytest $selection -q -p no:cacheprovider";

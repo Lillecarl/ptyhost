@@ -1,3 +1,53 @@
+# What ptyhost is and what it needs. `setup.py` used to say this, and a build
+# read it by running it. Nix reads this file instead, at evaluation time, so
+# the dependency list here is the one the package is built from and there is
+# no second copy in a `.nix` file to fall out of step. Lillecarl/pymux#319.
+[project]
+name = "ptyhost"
+version = "0.1"
+description = "Run a program on a pty: start it, size it, pump its bytes."
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+# Almost nothing. Running a program on a pty needs the standard library
+# and the operating system, and that is the point of this package: a
+# widget that depends on it takes on no toolkit and no parser.
+# Lillecarl/pymux#85.
+#
+# Windows has no pty, so it needs a library to pretend. The marker is
+# what `setup.py` spelled as an `if` around an append, and a marker is
+# read without running anything.
+dependencies = [
+    "yawinpty; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+# What a check installs, beside what ptyhost itself needs. anyio carries
+# the pytest plugin that runs a coroutine test; without it pytest fails
+# one with "async def functions are not natively supported", and what
+# this package does is asynchronous throughout.
+test = [
+    "pytest",
+    "anyio",
+]
+
+[project.urls]
+Homepage = "https://github.com/Lillecarl/ptyhost"
+
+[project.scripts]
+# A recorder, not a test. A fault that only a real program shows, on the
+# machine of the person who hit it, can only reach a check by being
+# recorded there first, so the recorder has to run anywhere.
+ptyhost-record = "ptyhost.record:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ptyhost"]
+
 [tool.pytest.ini_options]
 # Run a coroutine test, with no mark on it.
 #
