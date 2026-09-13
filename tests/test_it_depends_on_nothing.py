@@ -118,4 +118,5 @@ _STANDARD_LIBRARY = {
     "traceback",
     "tty",
     "typing",
+    "warnings",
 }

@@ -5,6 +5,7 @@ import signal
 import sys
 import time
 import traceback
+import warnings
 from asyncio import Future, get_event_loop
 
 from .base import Backend
@@ -141,7 +142,14 @@ class PosixBackend(Backend):
         """
         Create fork and start the child process.
         """
-        pid = os.fork()
+        # CPython warns about a fork in a threaded process. The child
+        # here execs at once, and between the fork and the exec it
+        # touches only os-level calls; a pty child has no posix_spawn
+        # route, because it needs setsid and its own controlling
+        # terminal.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pid = os.fork()
 
         if pid == 0:
             self._in_child()
