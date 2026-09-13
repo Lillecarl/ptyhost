@@ -23,25 +23,10 @@
   callPackage,
 }:
 let
-  # What the wheel is built from, and nothing else. A denylist would carry
-  # `tests` and the `.ruff_cache` a local run rewrites, and a source that a
-  # test run changes rebuilds everything above it. Lillecarl/pymux#320.
-  projectRoot = lib.fileset.toSource {
-    root = ./.;
-    fileset = lib.fileset.unions [
-      # Not only the `.py` files: `py.typed` is what tells a checker that
-      # the annotations here are meant to be read. `setup.py` named it in
-      # `package_data`, and hatchling takes the whole directory.
-      (lib.fileset.fileFilter (file: file.hasExt "py" || file.name == "py.typed") ./ptyhost)
-      ./pyproject.toml
-      ./README.md
-      ./LICENSE
-    ];
-  };
-
   package =
     (mkProject {
-      inherit projectRoot python;
+      root = ./.;
+      inherit python;
       extra = rendered: {
         passthru = rendered.passthru // { inherit checks; };
 
