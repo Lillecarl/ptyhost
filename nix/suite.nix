@@ -70,8 +70,18 @@ rec {
       # Only the suite is inside the guard. `tee` keeps the live output, so
       # `nix log` still shows the run as it goes, and `PIPESTATUS` reads the
       # code of the suite and not of `tee`.
+      #
+      # **`set -e` inside the subshell, and the two lines belong together.**
+      # `set +e` keeps a failing suite from failing this build, and on its
+      # own it takes errexit away from the suite's script as well: a script
+      # of several commands then reports the status of the last one and
+      # loses every failure before it. Measured -- a check whose first
+      # command found a real syntax error went green, because the command
+      # after it passed. The subshell puts the option back where the suite
+      # is, and the suite's own exit still reaches `PIPESTATUS` rather than
+      # this build. Lillecarl/pymux#464.
       set +e
-      ( ${command} ) 2>&1 | tee "$out/log"
+      ( set -e; ${command} ) 2>&1 | tee "$out/log"
       echo "''${PIPESTATUS[0]}" > "$out/status"
       set -e
 
