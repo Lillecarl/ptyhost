@@ -2,6 +2,8 @@
 Tools for Darwin. (Mac OS X.)
 """
 
+from __future__ import annotations
+
 from ctypes import c_ubyte, c_uint, c_ulong, cdll, pointer
 
 __all__ = ["get_proc_info", "get_proc_name"]

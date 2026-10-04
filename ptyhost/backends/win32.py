@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from asyncio import Future
+
 from yawinpty import Pty, SpawnConfig
 
 from .base import Backend
@@ -78,11 +81,7 @@ class Win32Backend(Backend):
         """
         Start the terminal process.
         """
-        self.pty.spawn(
-            SpawnConfig(
-                SpawnConfig.flag.auto_shutdown, cmdline=r"C:\windows\system32\cmd.exe"
-            )
-        )
+        self.pty.spawn(SpawnConfig(SpawnConfig.flag.auto_shutdown, cmdline=r"C:\windows\system32\cmd.exe"))
 
     def kill(self):
         "Terminate the process."

@@ -11,6 +11,8 @@ down. The cell here is a number for the test to count with, and not a
 claim about anything.
 """
 
+from __future__ import annotations
+
 import array
 import fcntl
 import os

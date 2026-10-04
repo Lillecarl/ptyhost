@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import logging
 from asyncio import Future, Task, get_event_loop
-from typing import Callable, List
+from typing import Callable
 
 from asyncssh import SSHClientChannel, SSHClientConnection, SSHClientSession
 
@@ -18,7 +20,7 @@ class AsyncSSHBackend(Backend):
 
     def __init__(
         self,
-        ssh_client_connection: "SSHClientConnection",
+        ssh_client_connection: SSHClientConnection,
         command: str | None = None,
     ) -> None:
         self.ssh_client_connection = ssh_client_connection
@@ -28,8 +30,8 @@ class AsyncSSHBackend(Backend):
         self._session: SSHClientSession | None = None
 
         self._reader_connected = False
-        self._input_ready_callbacks: List[Callable[[], None]] = []
-        self._receive_buffer: List[str] = []
+        self._input_ready_callbacks: list[Callable[[], None]] = []
+        self._receive_buffer: list[str] = []
         self.ready_f: Future[None] = Future()
 
         self.loop = get_event_loop()
@@ -78,7 +80,7 @@ class AsyncSSHBackend(Backend):
         self._starting = self.loop.create_task(run())
         self._starting.add_done_callback(self._session_started)
 
-    def _session_started(self, task: "Task[None]") -> None:
+    def _session_started(self, task: Task[None]) -> None:
         """
         What happened to the session this backend asked for.
 

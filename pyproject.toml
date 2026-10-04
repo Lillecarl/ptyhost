@@ -66,27 +66,70 @@ packages = ["ptyhost"]
 anyio_mode = "auto"
 
 [tool.ruff]
+# Mirror of the `ruff.toml` beside the umbrella: the build sandbox
+# sees only this tree, so discovery from a file under it must end
+# here. Keep the two in step; the why lives up there.
+#
+# The floor here is 3.10, not the umbrella's 3.14: the same rules,
+# applied for what this interpreter runs.
 target-version = "py310"
+# Pinned: a ruff upgrade must never silently reflow the tree.
+line-length = 120
+
+[tool.ruff.lint]
+# Mirror of the umbrella `ruff.toml`, rule for rule: the build
+# sandbox sees only this tree, so discovery from a file under it
+# must end here. Change the rules in both places. Every rule here
+# autofixes cleanly through the editor pipeline, and the gate below
+# holds what the pipeline leaves behind.
+#
+# UP037 unquotes an annotation once the future import makes it lazy.
+# I001 sorts the imports the pipeline already organizes. UP006,
+# UP007 and UP045 spell the modern syntax the floor already runs.
+# UP009, UP015, UP024 and UP033 are four trivial modernizations.
+# F401 drops the imports nothing reads. RUF100 drops the `noqa`
+# comments nothing needs. RUF023 sorts the slots. PIE790, PIE800
+# and PIE808 drop three kinds of dead weight.
+#
+# Strings: `%` stays where it is. New code prefers f-strings, and a
+# `%` a touch already rewrites may ride along, but there is no bulk
+# migration: UP031 has no autofix, and its thousand sites are a
+# manual, trap-laden rewrite (a tuple on the right of `%` formats
+# its elements, an f-string its repr). UP031 and UP032 stay off for
+# the same reason.
+#
+# FA100 is absent: on this floor it fires only where a rewrite needs
+# the import, and its fix is unsafe, so the editor never applies it.
+# The presence of the import is held per package by its own gate.
+# TC001-TC003 are deferred: should a runtime reader ever need a
+# name, that name keeps a runtime import through the
+# `runtime-evaluated-*` exemptions, per symbol.
+#
+# This stands down the broader set that was here (E, W, the rest of
+# F, C, T, Q and the rest of UP): one style for the collection, held
+# by the gate below rather than by the editor alone.
 select = [
-    "E",  # pycodestyle errors
-    "W",  # pycodestyle warnings
-    "F",  # pyflakes
-    "C",  # flake8-comprehensions
-    "T",  # Print.
-    "I",  # isort
-    "UP",  # pyupgrade
-    "RUF100",  # unused-noqa
-    "Q",  # quotes
+    "F401",
+    "I001",
+    "PIE790",
+    "PIE800",
+    "PIE808",
+    "RUF023",
+    "RUF100",
+    "UP006",
+    "UP007",
+    "UP009",
+    "UP015",
+    "UP024",
+    "UP033",
+    "UP037",
+    "UP045",
 ]
-ignore = [
-    "E501",  # Line too long, handled by black
-    "C901",  # Too complex
-    "E722",  # bare except.
-]
 
 
-[tool.ruff.per-file-ignores]
-
-
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
+# ptyhost depends on nothing of the collection, so it stands
+# first-party alone. Named so the grouping never follows PYTHONPATH:
+# measured on pymux, an installed sibling sorts one way in the dev
+# shell and the other in the sandbox.
 known-first-party = ["ptyhost"]

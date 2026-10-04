@@ -2,6 +2,8 @@
 The child process.
 """
 
+from __future__ import annotations
+
 import logging
 from asyncio import get_event_loop
 from typing import Callable

@@ -14,6 +14,8 @@ drains now (Lillecarl/pymux#121), and `linger=False` says so where it
 is the point.
 """
 
+from __future__ import annotations
+
 import asyncio
 import sys
 
@@ -40,10 +42,7 @@ async def until(said, text: str) -> None:
     deadline = asyncio.get_event_loop().time() + TIMEOUT
     while text not in "".join(said):
         if asyncio.get_event_loop().time() > deadline:
-            raise AssertionError(
-                "waited %g seconds for %r; the program wrote %r"
-                % (TIMEOUT, text, "".join(said))
-            )
+            raise AssertionError("waited %g seconds for %r; the program wrote %r" % (TIMEOUT, text, "".join(said)))
         await asyncio.sleep(TICK)
 
 
@@ -86,9 +85,7 @@ async def test_what_a_caller_writes_reaches_the_program():
 async def test_the_program_is_told_how_big_the_pty_is():
     said = []
     process = running(
-        "import os\n"
-        "size = os.get_terminal_size()\n"
-        "print('SIZE %d %d' % (size.columns, size.lines))",
+        "import os\nsize = os.get_terminal_size()\nprint('SIZE %d %d' % (size.columns, size.lines))",
         said,
     )
     try:
@@ -237,7 +234,7 @@ async def test_several_programs_that_nobody_watches_are_still_read():
     a duration and landed fifty-seven years out. Lillecarl/pymux#122.
     """
     watched = [[] for _ in range(4)]
-    nobody_is_looking = lambda: False  # noqa: E731
+    nobody_is_looking = lambda: False
     programs = [
         running(
             "print('pane %d', flush=True)" % number,

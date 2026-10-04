@@ -9,6 +9,8 @@ down, if ever, and `ready_f` stayed pending for ever. A caller waits on
 pane waited with nothing in any log. Lillecarl/pymux#265.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 

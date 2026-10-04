@@ -3,6 +3,8 @@ Abstractions on top of Win32 pipes for integration in the prompt_toolkit event
 loop.
 """
 
+from __future__ import annotations
+
 import ctypes
 from asyncio import Event, Future, ensure_future, get_event_loop
 from ctypes import (
@@ -171,9 +173,7 @@ class PipeWriter:
     def __init__(self, pipe_name):
         self.pipe_name = pipe_name
 
-        self.handle = windll.kernel32.CreateFileW(
-            pipe_name, GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, None
-        )
+        self.handle = windll.kernel32.CreateFileW(pipe_name, GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, None)
 
         if self.handle == INVALID_HANDLE_VALUE:
             error_code = windll.kernel32.GetLastError()

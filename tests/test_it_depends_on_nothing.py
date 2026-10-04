@@ -11,6 +11,8 @@ An import that breaks it fails here, and not in a widget a month
 later.
 """
 
+from __future__ import annotations
+
 import ast
 from pathlib import Path
 
@@ -90,6 +92,9 @@ def test_no_module_imports_a_third_party_package(path):
 #: point: a new one is a new call on the operating system, and it should
 #: be a deliberate line in this file.
 _STANDARD_LIBRARY = {
+    # The compiler flag every module carries, not a dependency: it
+    # changes how annotations read and imports nothing at run time.
+    "__future__",
     "abc",
     "argparse",
     "array",

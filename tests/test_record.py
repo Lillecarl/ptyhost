@@ -11,6 +11,8 @@ end, and quitting it would draw the screen it gives back over the screen
 that was being recorded.
 """
 
+from __future__ import annotations
+
 import json
 import sys
 import time

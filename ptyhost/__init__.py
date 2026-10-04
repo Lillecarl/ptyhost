@@ -5,6 +5,8 @@ No parsing, no drawing, no toolkit. What the program writes goes to a
 callback, and whoever built the `Process` decides what it means.
 """
 
+from __future__ import annotations
+
 from .process import Process
 
 __all__ = ("Process",)

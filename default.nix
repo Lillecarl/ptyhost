@@ -21,6 +21,8 @@
   mkVirtualEnv,
   mkProject,
   callPackage,
+  # The linter and formatter that the `ruff` check runs.
+  ruff,
 }:
 let
   package =
@@ -52,6 +54,9 @@ let
     fileset = lib.fileset.unions [
       ./tests
       ./pyproject.toml
+      # The `ruff` check reads the package, where the suite above
+      # reads the installed one and never looks here.
+      ./ptyhost
     ];
   };
 
@@ -59,6 +64,6 @@ let
   # extra beside them in the same file.
   testEnv = mkVirtualEnv "ptyhost-test-env" { ptyhost = [ "test" ]; };
 
-  checks = callPackage ./nix/checks.nix { inherit testEnv testSources; };
+  checks = callPackage ./nix/checks.nix { inherit testEnv testSources ruff; };
 in
 package

@@ -58,6 +58,8 @@ piece of the work in front of you. Read one before it goes into a
 repository.
 """
 
+from __future__ import annotations
+
 import argparse
 import base64
 import fcntl
@@ -74,7 +76,6 @@ import sys
 import termios
 import time
 import tty
-
 
 #: How long to give a program to end after the recording stops, before
 #: insisting. It is being asked to go away, not to save anything.
@@ -272,13 +273,10 @@ def record(
 
     output.write_bytes(b"".join(written))
     reads.write_text(json.dumps({"lines": lines, "columns": columns, "sizes": sizes}))
-    session.write_text(
-        json.dumps({"lines": lines, "columns": columns, "term": term, "events": events})
-    )
+    session.write_text(json.dumps({"lines": lines, "columns": columns, "term": term, "events": events}))
     keys = sum(1 for event in events if event[1] == "in")
     print(
-        "\r\n%s: %d bytes in %d reads, %d from the keyboard (%s)"
-        % (output, sum(sizes), len(sizes), keys, reason),
+        "\r\n%s: %d bytes in %d reads, %d from the keyboard (%s)" % (output, sum(sizes), len(sizes), keys, reason),
         file=sys.stderr,
     )
 

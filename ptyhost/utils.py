@@ -2,6 +2,8 @@
 Some utilities.
 """
 
+from __future__ import annotations
+
 import getpass
 import os
 

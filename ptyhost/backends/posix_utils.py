@@ -2,6 +2,8 @@
 Some utilities.
 """
 
+from __future__ import annotations
+
 import array
 import fcntl
 import os
@@ -42,9 +44,7 @@ class PtyReader:
         terminal does with a program that writes rubbish.
     """
 
-    def __init__(
-        self, fd: int, errors: str = "replace", encoding: str = "utf-8"
-    ) -> None:
+    def __init__(self, fd: int, errors: str = "replace", encoding: str = "utf-8") -> None:
         self.fd = fd
         self.errors = errors
 
@@ -128,10 +128,7 @@ def pty_make_controlling_tty(tty_fd):
         fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
         if fd >= 0:
             os.close(fd)
-            raise Exception(
-                "Failed to disconnect from controlling "
-                "tty. It is still possible to open /dev/tty."
-            )
+            raise Exception("Failed to disconnect from controlling tty. It is still possible to open /dev/tty.")
     # which exception, shouldnt' we catch explicitly .. ?
     except:
         # Good! We are disconnected from a controlling tty.
