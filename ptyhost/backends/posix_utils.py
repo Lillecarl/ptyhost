@@ -18,9 +18,9 @@ MAX_WINSIZE_PIXELS = 32767
 
 __all__ = (
     "PtyReader",
+    "nonblocking",
     "pty_make_controlling_tty",
     "set_terminal_size",
-    "nonblocking",
 )
 
 
