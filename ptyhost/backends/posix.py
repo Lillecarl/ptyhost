@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import resource
@@ -182,10 +183,9 @@ class PosixBackend(Backend):
         assert isinstance(signal, int), type(signal)
 
         if self.pid and not self.closed:
-            try:
+            # [Errno 3] No such process.
+            with contextlib.suppress(OSError):
                 os.kill(self.pid, signal)
-            except OSError:
-                pass  # [Errno 3] No such process.
 
     def _in_child(self):
         "Will be executed in the forked child."

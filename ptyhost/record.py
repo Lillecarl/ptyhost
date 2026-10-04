@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import fcntl
 import io
 import json
@@ -111,10 +112,8 @@ def stop_the_program(child: int, master: int) -> None:
     is for one that ignores both.
     """
     os.close(master)
-    try:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(child, signal.SIGHUP)
-    except ProcessLookupError, PermissionError:
-        pass
 
     deadline = time.monotonic() + GRACE
     while time.monotonic() < deadline:

@@ -102,6 +102,7 @@ _STANDARD_LIBRARY = {
     "base64",
     "codecs",
     "collections",
+    "contextlib",
     "ctypes",
     "fcntl",
     "getpass",
