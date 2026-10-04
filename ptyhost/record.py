@@ -93,7 +93,7 @@ def _descriptor_of(stream) -> int | None:
     """
     try:
         return stream.fileno()
-    except (AttributeError, ValueError, io.UnsupportedOperation):
+    except AttributeError, ValueError, io.UnsupportedOperation:
         return None
 
 
@@ -113,7 +113,7 @@ def stop_the_program(child: int, master: int) -> None:
     os.close(master)
     try:
         os.kill(child, signal.SIGHUP)
-    except (ProcessLookupError, PermissionError):
+    except ProcessLookupError, PermissionError:
         pass
 
     deadline = time.monotonic() + GRACE
@@ -129,7 +129,7 @@ def stop_the_program(child: int, master: int) -> None:
     try:
         os.kill(child, signal.SIGKILL)
         os.waitpid(child, 0)
-    except (ProcessLookupError, ChildProcessError):
+    except ProcessLookupError, ChildProcessError:
         pass
 
 

@@ -9,7 +9,7 @@ description = "Run a program on a pty: start it, size it, pump its bytes."
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 # Almost nothing. Running a program on a pty needs the standard library
 # and the operating system, and that is the point of this package: a
 # widget that depends on it takes on no toolkit and no parser.
@@ -70,9 +70,8 @@ anyio_mode = "auto"
 # sees only this tree, so discovery from a file under it must end
 # here. Keep the two in step; the why lives up there.
 #
-# The floor here is 3.10, not the umbrella's 3.14: the same rules,
-# applied for what this interpreter runs.
-target-version = "py310"
+# The floor is 3.14, like the umbrella's.
+target-version = "py314"
 # Pinned: a ruff upgrade must never silently reflow the tree.
 line-length = 120
 
