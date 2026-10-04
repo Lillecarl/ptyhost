@@ -117,9 +117,26 @@ line-length = 120
 # SIM105 folds try-except-pass into `contextlib.suppress`.
 # SIM108 writes the short if-else as a ternary.
 # ISC004 parenthesizes the implicit concatenation.
+#
+# The small safe ones ride together, a hunk or two each: B009 and
+# B010 spell attribute access plainly, E713 writes `not in`, FURB105
+# drops the empty `print`, FURB110 writes the `or`, FURB167 names
+# the regex flag long, FURB188 cuts the prefix, ISC003 joins the
+# split string, PLR0402 writes the from-import, PLR2044 drops the
+# empty comment, PTH201 drops the current-directory spell, RSE102
+# drops the parens on a bare raise, UP032 writes f-strings for
+# `.format` (not `%`: UP031 stays off for the tuple trap), UP041
+# names `TimeoutError`, UP043 drops the default type args. RUF021
+# stays off: preview-only in this ruff, so its one pair of parens
+# rides without the rule.
 select = [
+    "B009",
+    "B010",
     "B035",
+    "E713",
     "F401",
+    "FURB105",
+    "FURB110",
     "FURB116",
     "FURB122",
     "FURB129",
@@ -131,15 +148,18 @@ select = [
     "FURB163",
     "FURB164",
     "FURB166",
+    "FURB167",
     "FURB168",
     "FURB169",
     "FURB171",
     "FURB177",
     "FURB181",
     "FURB187",
+    "FURB188",
     "I001",
     "ISC001",
     "ISC002",
+    "ISC003",
     "ISC004",
     "PIE790",
     "PIE794",
@@ -148,13 +168,17 @@ select = [
     "PIE804",
     "PIE807",
     "PIE808",
+    "PLR0402",
+    "PLR2044",
     "PT006",
+    "PTH201",
     "RET501",
     "RET502",
     "RET505",
     "RET506",
     "RET507",
     "RET508",
+    "RSE102",
     "RUF002",
     "RUF003",
     "RUF005",
@@ -226,6 +250,7 @@ select = [
     "UP026",
     "UP028",
     "UP029",
+    "UP032",
     "UP033",
     "UP034",
     "UP035",
@@ -233,7 +258,9 @@ select = [
     "UP037",
     "UP039",
     "UP040",
+    "UP041",
     "UP042",
+    "UP043",
     "UP044",
     "UP045",
     "UP046",

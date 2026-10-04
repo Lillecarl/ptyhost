@@ -142,7 +142,7 @@ def record(
     timeout: float = 0.0,
     idle: float = 0.0,
 ) -> None:
-    directory = into or pathlib.Path(".")
+    directory = into or pathlib.Path()
     directory.mkdir(parents=True, exist_ok=True)
     output = directory / ("%s.bin" % name)
     reads = directory / ("%s.reads.json" % name)

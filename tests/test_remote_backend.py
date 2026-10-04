@@ -31,7 +31,7 @@ async def _started(backend):
     "Wait for `ready_f`, and say whether it arrived."
     try:
         await asyncio.wait_for(asyncio.shield(backend.ready_f), 5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False
     return True
 
