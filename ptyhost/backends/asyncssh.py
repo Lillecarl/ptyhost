@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from asyncio import Future, Task, get_event_loop
-from typing import Callable
+from collections.abc import Callable
 
 from asyncssh import SSHClientChannel, SSHClientConnection, SSHClientSession
 

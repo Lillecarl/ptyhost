@@ -107,6 +107,8 @@ line-length = 120
 # This stands down the broader set that was here (E, W, the rest of
 # F, C, T, Q and the rest of UP): one style for the collection, held
 # by the gate below rather than by the editor alone.
+#
+# UP035 moves the typing names to `collections.abc`.
 select = [
     "B035",
     "F401",
@@ -208,6 +210,7 @@ select = [
     "UP029",
     "UP033",
     "UP034",
+    "UP035",
     "UP036",
     "UP037",
     "UP039",
