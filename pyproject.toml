@@ -112,6 +112,7 @@ line-length = 120
 # RUF022 sorts `__all__`.
 # RET501, RET502, RET505 and RET506 flatten what follows return
 # and raise: no `else` after either, and no bare `return None`.
+# PT006 names parametrize cases with tuples, not strings.
 select = [
     "B035",
     "F401",
@@ -142,6 +143,7 @@ select = [
     "PIE804",
     "PIE807",
     "PIE808",
+    "PT006",
     "RET501",
     "RET502",
     "RET505",
