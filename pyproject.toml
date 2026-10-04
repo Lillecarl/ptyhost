@@ -116,6 +116,7 @@ line-length = 120
 # RUF005 unpacks where concatenation builds.
 # SIM105 folds try-except-pass into `contextlib.suppress`.
 # SIM108 writes the short if-else as a ternary.
+# ISC004 parenthesizes the implicit concatenation.
 select = [
     "B035",
     "F401",
@@ -139,6 +140,7 @@ select = [
     "I001",
     "ISC001",
     "ISC002",
+    "ISC004",
     "PIE790",
     "PIE794",
     "PIE796",
