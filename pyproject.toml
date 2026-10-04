@@ -113,6 +113,7 @@ line-length = 120
 # RET501, RET502, RET505 and RET506 flatten what follows return
 # and raise: no `else` after either, and no bare `return None`.
 # PT006 names parametrize cases with tuples, not strings.
+# RUF005 unpacks where concatenation builds.
 select = [
     "B035",
     "F401",
@@ -152,6 +153,7 @@ select = [
     "RET508",
     "RUF002",
     "RUF003",
+    "RUF005",
     "RUF008",
     "RUF009",
     "RUF010",
