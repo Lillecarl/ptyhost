@@ -110,6 +110,8 @@ line-length = 120
 #
 # UP035 moves the typing names to `collections.abc`.
 # RUF022 sorts `__all__`.
+# RET501, RET502, RET505 and RET506 flatten what follows return
+# and raise: no `else` after either, and no bare `return None`.
 select = [
     "B035",
     "F401",
@@ -140,6 +142,10 @@ select = [
     "PIE804",
     "PIE807",
     "PIE808",
+    "RET501",
+    "RET502",
+    "RET505",
+    "RET506",
     "RET507",
     "RET508",
     "RUF002",

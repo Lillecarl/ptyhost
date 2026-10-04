@@ -328,7 +328,7 @@ if sys.platform in ("linux", "linux2", "cygwin"):
             pgrp = os.tcgetpgrp(fd)
         except OSError:
             # See: https://github.com/jonathanslenders/pymux/issues/46
-            return
+            return None
 
         try:
             with open("/proc/%s/cmdline" % pgrp, "rb") as f:
@@ -348,7 +348,7 @@ elif sys.platform == "darwin":
         try:
             pgrp = os.tcgetpgrp(fd)
         except OSError:
-            return
+            return None
 
         try:
             return get_proc_name(pgrp)

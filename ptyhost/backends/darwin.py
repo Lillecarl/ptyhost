@@ -61,14 +61,14 @@ def get_proc_info(pid):
     oldlenp = pointer(oldlen)
     r = LIBC.sysctl(mib, len(mib), None, oldlenp, None, 0)
     if r:
-        return
+        return None
 
     # Request the process data.
     reslen = oldlen.value
     old = (c_ubyte * reslen)()
     r = LIBC.sysctl(mib, len(mib), old, oldlenp, None, 0)
     if r:
-        return
+        return None
     # assert oldlen.value <= reslen
 
     return old[:reslen]
@@ -80,7 +80,7 @@ def get_proc_name(pid):
     """
     proc_kinfo = get_proc_info(pid)
     if not proc_kinfo:
-        return
+        return None
 
     p_comm_range = proc_kinfo[P_COMM_OFFSET : P_COMM_OFFSET + MAXCOMLEN + 1]
     p_comm_raw = "".join(chr(c) for c in p_comm_range)

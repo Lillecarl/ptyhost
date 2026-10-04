@@ -138,8 +138,7 @@ def pty_make_controlling_tty(tty_fd):
     fd = os.open(child_name, os.O_RDWR)
     if fd < 0:
         raise Exception("Could not open child pty, " + child_name)
-    else:
-        os.close(fd)
+    os.close(fd)
 
     # Verify we now have a controlling tty.
     if os.name != "posix":
@@ -147,8 +146,7 @@ def pty_make_controlling_tty(tty_fd):
         fd = os.open("/dev/tty", os.O_WRONLY)
         if fd < 0:
             raise Exception("Could not open controlling tty, /dev/tty")
-        else:
-            os.close(fd)
+        os.close(fd)
 
 
 def set_terminal_size(stdout_fileno, rows, cols, cell=(0, 0)):
