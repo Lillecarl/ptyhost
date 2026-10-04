@@ -115,6 +115,7 @@ line-length = 120
 # PT006 names parametrize cases with tuples, not strings.
 # RUF005 unpacks where concatenation builds.
 # SIM105 folds try-except-pass into `contextlib.suppress`.
+# SIM108 writes the short if-else as a ternary.
 select = [
     "B035",
     "F401",
@@ -196,6 +197,7 @@ select = [
     "RUF104",
     "RUF200",
     "SIM105",
+    "SIM108",
     "UP001",
     "UP003",
     "UP004",
