@@ -129,11 +129,20 @@ line-length = 120
 # names `TimeoutError`, UP043 drops the default type args. RUF021
 # stays off: preview-only in this ruff, so its one pair of parens
 # rides without the rule.
+#
+# C408 writes the literal for the builtin call, E731 writes the
+# `def` for the lambda, B007 underscores the unused loop name (one
+# noqa where the index leaves the loop), RUF007 walks pairs with
+# `pairwise`, RUF015 takes the first with `next`, RUF036 moves
+# `None` to the end of the union.
 select = [
+    "B007",
     "B009",
     "B010",
     "B035",
+    "C408",
     "E713",
+    "E731",
     "F401",
     "FURB105",
     "FURB110",
@@ -182,10 +191,12 @@ select = [
     "RUF002",
     "RUF003",
     "RUF005",
+    "RUF007",
     "RUF008",
     "RUF009",
     "RUF010",
     "RUF013",
+    "RUF015",
     "RUF016",
     "RUF017",
     "RUF018",
@@ -200,6 +211,7 @@ select = [
     "RUF032",
     "RUF033",
     "RUF034",
+    "RUF036",
     "RUF037",
     "RUF040",
     "RUF041",

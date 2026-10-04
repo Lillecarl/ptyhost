@@ -234,7 +234,10 @@ async def test_several_programs_that_nobody_watches_are_still_read():
     a duration and landed fifty-seven years out. Lillecarl/pymux#122.
     """
     watched = [[] for _ in range(4)]
-    nobody_is_looking = lambda: False
+
+    def nobody_is_looking():
+        return False
+
     programs = [
         running(
             "print('pane %d', flush=True)" % number,
