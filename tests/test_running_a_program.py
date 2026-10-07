@@ -16,9 +16,9 @@ is the point.
 
 from __future__ import annotations
 
-import asyncio
 import sys
 
+import anyio
 import pytest
 
 from ptyhost import Process
@@ -29,7 +29,8 @@ from ptyhost.backends.posix import PosixBackend
 #: run that reaches it has gone wrong.
 TIMEOUT = 5.0
 
-#: How often the loop is turned while waiting. The reader runs on it.
+#: How often to look while waiting. The pump runs on its own task, so
+#: this only sets how fast the test notices.
 TICK = 0.01
 
 #: What keeps a program alive after it has said its piece. The test
@@ -39,15 +40,16 @@ LINGER = "\nimport time\ntime.sleep(30)\n"
 
 async def until(said, text: str) -> None:
     "Wait for `text` to turn up in what the program wrote."
-    deadline = asyncio.get_event_loop().time() + TIMEOUT
-    while text not in "".join(said):
-        if asyncio.get_event_loop().time() > deadline:
-            raise AssertionError("waited %g seconds for %r; the program wrote %r" % (TIMEOUT, text, "".join(said)))
-        await asyncio.sleep(TICK)
+    try:
+        with anyio.fail_after(TIMEOUT):
+            while text not in "".join(said):
+                await anyio.sleep(TICK)
+    except TimeoutError:
+        raise AssertionError("waited %g seconds for %r; the program wrote %r" % (TIMEOUT, text, "".join(said)))
 
 
-def running(program: str, said, ended=None, linger: bool = True, priority=None):
-    "A `Process` on a python program, sized and started."
+async def running(program: str, said, ended=None, linger: bool = True, priority=None, *, task_group):
+    "A `Process` on a python program, sized and started, watched by the group."
     command = [sys.executable, "-c", program + (LINGER if linger else "")]
     backend = PosixBackend.from_command(command)
     process = Process(
@@ -57,71 +59,79 @@ def running(program: str, said, ended=None, linger: bool = True, priority=None):
         has_priority=priority,
     )
     process.set_size(80, 24)
-    process.start()
+    await process.start(task_group)
     return process
 
 
 async def test_what_a_program_writes_reaches_the_callback():
     said = []
-    process = running("print('hello from the pty')", said)
-    try:
-        await until(said, "hello from the pty")
-    finally:
-        process.kill()
+    async with anyio.create_task_group() as task_group:
+        process = await running("print('hello from the pty')", said, task_group=task_group)
+        try:
+            await until(said, "hello from the pty")
+        finally:
+            process.kill()
 
 
 async def test_what_a_caller_writes_reaches_the_program():
     "The program reads a line and writes it back."
     said = []
-    process = running("print('<' + input() + '>')", said)
-    try:
-        # The pty echoes as well, so the marks are what the program made.
-        process.write_input("ping\n")
-        await until(said, "<ping>")
-    finally:
-        process.kill()
+    async with anyio.create_task_group() as task_group:
+        process = await running("print('<' + input() + '>')", said, task_group=task_group)
+        try:
+            # The pty echoes as well, so the marks are what the program made.
+            process.write_input("ping\n")
+            await until(said, "<ping>")
+        finally:
+            process.kill()
 
 
 async def test_the_program_is_told_how_big_the_pty_is():
     said = []
-    process = running(
-        "import os\nsize = os.get_terminal_size()\nprint('SIZE %d %d' % (size.columns, size.lines))",
-        said,
-    )
-    try:
-        await until(said, "SIZE 80 24")
-    finally:
-        process.kill()
+    async with anyio.create_task_group() as task_group:
+        process = await running(
+            "import os\nsize = os.get_terminal_size()\nprint('SIZE %d %d' % (size.columns, size.lines))",
+            said,
+            task_group=task_group,
+        )
+        try:
+            await until(said, "SIZE 80 24")
+        finally:
+            process.kill()
 
 
 async def test_a_resize_reaches_a_program_that_is_already_running():
     said = []
-    process = running(
-        "import os, signal, sys\n"
-        "def report(*_):\n"
-        "    size = os.get_terminal_size()\n"
-        "    print('SIZE %d %d' % (size.columns, size.lines), flush=True)\n"
-        "signal.signal(signal.SIGWINCH, report)\n"
-        "print('READY', flush=True)",
-        said,
-    )
-    try:
-        await until(said, "READY")
-        process.set_size(40, 10)
-        await until(said, "SIZE 40 10")
-    finally:
-        process.kill()
+    async with anyio.create_task_group() as task_group:
+        process = await running(
+            "import os, signal, sys\n"
+            "def report(*_):\n"
+            "    size = os.get_terminal_size()\n"
+            "    print('SIZE %d %d' % (size.columns, size.lines), flush=True)\n"
+            "signal.signal(signal.SIGWINCH, report)\n"
+            "print('READY', flush=True)",
+            said,
+            task_group=task_group,
+        )
+        try:
+            await until(said, "READY")
+            process.set_size(40, 10)
+            await until(said, "SIZE 40 10")
+        finally:
+            process.kill()
 
 
 async def test_the_end_of_a_program_is_reported():
     "The one program that ends. Nothing here reads what it wrote."
     said = []
-    ended = asyncio.Event()
-    process = running("pass", said, ended.set, linger=False)
-    try:
-        await asyncio.wait_for(ended.wait(), TIMEOUT)
-    finally:
-        process.kill()
+    ended = anyio.Event()
+    async with anyio.create_task_group() as task_group:
+        process = await running("pass", said, ended.set, linger=False, task_group=task_group)
+        try:
+            with anyio.fail_after(TIMEOUT):
+                await ended.wait()
+        finally:
+            process.kill()
 
 
 @pytest.mark.parametrize("run", range(12))
@@ -142,18 +152,21 @@ async def test_the_last_thing_a_program_writes_arrives(run):
     Lillecarl/pymux#121.
     """
     said = []
-    ended = asyncio.Event()
-    process = running(
-        "import sys; sys.stdout.write('the last word'); sys.stdout.flush()",
-        said,
-        ended.set,
-        linger=False,
-    )
-    try:
-        await asyncio.wait_for(ended.wait(), TIMEOUT)
-        await until(said, "the last word")
-    finally:
-        process.kill()
+    ended = anyio.Event()
+    async with anyio.create_task_group() as task_group:
+        process = await running(
+            "import sys; sys.stdout.write('the last word'); sys.stdout.flush()",
+            said,
+            ended.set,
+            linger=False,
+            task_group=task_group,
+        )
+        try:
+            with anyio.fail_after(TIMEOUT):
+                await ended.wait()
+            await until(said, "the last word")
+        finally:
+            process.kill()
 
 
 async def test_a_program_that_ended_is_terminated():
@@ -168,16 +181,17 @@ async def test_a_program_that_ended_is_terminated():
     Lillecarl/pymux#120.
     """
     said = []
-    ended = asyncio.Event()
-    process = running("pass", said, ended.set, linger=False)
-    try:
-        await asyncio.wait_for(ended.wait(), TIMEOUT)
-        deadline = asyncio.get_event_loop().time() + 1.0
-        while not process.is_terminated:
-            assert asyncio.get_event_loop().time() < deadline
-            await asyncio.sleep(TICK)
-    finally:
-        process.kill()
+    ended = anyio.Event()
+    async with anyio.create_task_group() as task_group:
+        process = await running("pass", said, ended.set, linger=False, task_group=task_group)
+        try:
+            with anyio.fail_after(TIMEOUT):
+                await ended.wait()
+            with anyio.fail_after(1.0):
+                while not process.is_terminated:
+                    await anyio.sleep(TICK)
+        finally:
+            process.kill()
 
 
 async def test_a_suspended_program_is_not_read():
@@ -186,15 +200,16 @@ async def test_a_suspended_program_is_not_read():
     reads it, and a resume picks up what it wrote in the meantime.
     """
     said = []
-    process = running("import time\ntime.sleep(0.2)\nprint('late', flush=True)", said)
-    try:
-        process.suspend()
-        await asyncio.sleep(0.4)
-        assert "late" not in "".join(said)
-        process.resume()
-        await until(said, "late")
-    finally:
-        process.kill()
+    async with anyio.create_task_group() as task_group:
+        process = await running("import time\ntime.sleep(0.2)\nprint('late', flush=True)", said, task_group=task_group)
+        try:
+            process.suspend()
+            await anyio.sleep(0.4)
+            assert "late" not in "".join(said)
+            process.resume()
+            await until(said, "late")
+        finally:
+            process.kill()
 
 
 async def test_a_program_that_ends_while_suspended_waits_for_the_resume():
@@ -209,15 +224,16 @@ async def test_a_program_that_ends_while_suspended_waits_for_the_resume():
     loop. It may not go back by itself.
     """
     said = []
-    process = running("print('last', flush=True)", said, linger=False)
-    try:
-        process.suspend()
-        await asyncio.sleep(0.4)
-        assert "last" not in "".join(said)
-        process.resume()
-        await until(said, "last")
-    finally:
-        process.kill()
+    async with anyio.create_task_group() as task_group:
+        process = await running("print('last', flush=True)", said, linger=False, task_group=task_group)
+        try:
+            process.suspend()
+            await anyio.sleep(0.4)
+            assert "last" not in "".join(said)
+            process.resume()
+            await until(said, "last")
+        finally:
+            process.kill()
 
 
 async def test_several_programs_that_nobody_watches_are_still_read():
@@ -238,20 +254,22 @@ async def test_several_programs_that_nobody_watches_are_still_read():
     def nobody_is_looking():
         return False
 
-    programs = [
-        running(
-            "print('pane %d', flush=True)" % number,
-            said,
-            priority=nobody_is_looking,
-        )
-        for number, said in enumerate(watched)
-    ]
-    try:
-        for number, said in enumerate(watched):
-            await until(said, "pane %d" % number)
-    finally:
-        for process in programs:
-            process.kill()
+    async with anyio.create_task_group() as task_group:
+        programs = [
+            await running(
+                "print('pane %d', flush=True)" % number,
+                said,
+                priority=nobody_is_looking,
+                task_group=task_group,
+            )
+            for number, said in enumerate(watched)
+        ]
+        try:
+            for number, said in enumerate(watched):
+                await until(said, "pane %d" % number)
+        finally:
+            for process in programs:
+                process.kill()
 
 
 @pytest.mark.parametrize("text", ["ä", "日本", "🙂"])
@@ -264,15 +282,17 @@ async def test_a_character_split_across_two_reads_survives(text):
     # The bytes and not the character: the source of the child is plain
     # ASCII this way, so what a locale would do to it is not part of
     # the question.
-    process = running(
-        "import sys, time\n"
-        "for byte in %r:\n"
-        "    sys.stdout.buffer.write(bytes([byte]))\n"
-        "    sys.stdout.buffer.flush()\n"
-        "    time.sleep(0.01)\n" % (text.encode("utf-8"),),
-        said,
-    )
-    try:
-        await until(said, text)
-    finally:
-        process.kill()
+    async with anyio.create_task_group() as task_group:
+        process = await running(
+            "import sys, time\n"
+            "for byte in %r:\n"
+            "    sys.stdout.buffer.write(bytes([byte]))\n"
+            "    sys.stdout.buffer.flush()\n"
+            "    time.sleep(0.01)\n" % (text.encode("utf-8"),),
+            said,
+            task_group=task_group,
+        )
+        try:
+            await until(said, text)
+        finally:
+            process.kill()

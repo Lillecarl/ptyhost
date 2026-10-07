@@ -9,7 +9,8 @@ import sys
 import time
 import traceback
 import warnings
-from asyncio import Future, get_event_loop
+
+import anyio
 
 from .base import Backend
 from .posix_utils import PtyReader, pty_make_controlling_tty, set_terminal_size
@@ -38,11 +39,19 @@ class PosixBackend(Backend):
 
         # Master side -> attached to terminal emulator.
         self._reader = PtyReader(self.master, errors="replace")
-        self._reader_connected = False
         self._input_ready_callbacks = []
 
-        self.ready_f = Future()
-        self.loop = get_event_loop()
+        #: Set when the child has been reaped. `Process` waits on it
+        #: to fire `done_callback`.
+        self.ready_f: anyio.Event = anyio.Event()
+
+        #: Whether the pump hands pages over. Copy mode parks it with
+        #: `pause_reading`, and every pause hands it a fresh event, so
+        #: a resume that lands between the check and the wait cannot be
+        #: lost: the event the pump waits on is the one the resume set.
+        self._reading = anyio.Event()
+        self._reading.set()
+
         self.pid = None
 
     def add_input_ready_callback(self, callback):
@@ -72,15 +81,27 @@ class PosixBackend(Backend):
 
         return cls(execv, cell=cell)
 
-    def connect_reader(self):
-        if self.master is not None and not self._reader_connected:
+    def pause_reading(self):
+        """
+        Stop handing the program's output over, without losing any.
 
-            def ready():
-                for cb in self._input_ready_callbacks:
-                    cb()
+        The pump parks on a fresh event, so what the program writes
+        waits in the kernel until `resume_reading`. Copy mode is the
+        caller, and its promise is that no row of the screen changes
+        while a person reads it.
+        """
+        self._reading = anyio.Event()
 
-            self.loop.add_reader(self.master, ready)
-            self._reader_connected = True
+    def resume_reading(self):
+        """
+        Hand the program's output over again.
+
+        Picks up what the program wrote while paused, the end of the
+        file included. A resume that lands between the pump's check
+        and its wait cannot be lost: the pump waits on this event, and
+        this sets the one it holds.
+        """
+        self._reading.set()
 
     @property
     def closed(self):
@@ -100,11 +121,6 @@ class PosixBackend(Backend):
         Lillecarl/pymux#120.
         """
         return self._reader.closed
-
-    def disconnect_reader(self):
-        if self.master is not None and self._reader_connected:
-            self.loop.remove_reader(self.master)
-            self._reader_connected = False
 
     def read_text(self, amount=4096):
         "At most a page of what the program drew, decoded."
@@ -141,9 +157,14 @@ class PosixBackend(Backend):
         if self.master is not None:
             set_terminal_size(self.master, height, width, self.cell)
 
-    def start(self):
+    async def start(self, task_group: anyio.TaskGroup) -> None:
         """
-        Create fork and start the child process.
+        Create fork and start the child process, watched by `task_group`.
+
+        The pump reads what the program writes and the reaper waits for
+        it to end, both as tasks of the group. Abandoning the scope
+        ends them: the pump lets the master side go, and the reaper
+        kills a child the scope leaves behind rather than keeping it.
         """
         # CPython warns about a fork in a threaded process. The child
         # here execs at once, and between the fork and the exec it
@@ -171,8 +192,12 @@ class PosixBackend(Backend):
 
             self.pid = pid
 
-            # Wait for the process to finish.
-            self._waitpid()
+            # The pump reads what the program writes, and the reaper
+            # waits for it to end. Both are tasks of the caller's
+            # group, so this returns once they are started and the
+            # scope owns them.
+            task_group.start_soon(self._pump)
+            task_group.start_soon(self._reap)
 
     def kill(self):
         "Terminate process."
@@ -239,60 +264,89 @@ class PosixBackend(Backend):
         """
         Let the pty go, once there is nothing more to read from it.
 
-        `Process` calls this when a read says the file has ended. The
+        The pump calls this when a read says the file has ended. The
         reap cannot: what the kernel still holds for the master side
         is read on the turns of the loop after it, and closing there
         would throw that away. Lillecarl/pymux#121.
         """
-        self.disconnect_reader()
-
         if self.master is not None:
-            os.close(self.master)
+            with contextlib.suppress(OSError):
+                os.close(self.master)
             self.master = None
 
-    def _waitpid(self):
+    async def _pump(self) -> None:
         """
-        Create an executor that waits and handles process termination.
+        Read what the program writes, until the file ends.
+
+        The pump parks while copy mode has paused the reading, and it
+        parks on the descriptor otherwise: `wait_readable` wakes it
+        with something to hand over, and the callbacks read it. When
+        the master side goes away under it -- a teardown closing what
+        the pump is parked on -- the wait raises, and the `close` in
+        the `finally` is what keeps that from leaking the descriptor.
         """
+        try:
+            while self.master is not None and not self._reader.closed:
+                await self._reading.wait()
+                if self.master is None or self._reader.closed:
+                    break
+                try:
+                    await anyio.wait_readable(self.master)
+                except anyio.ClosedResourceError, OSError, ValueError:
+                    break
+                for callback in self._input_ready_callbacks:
+                    await callback()
+        finally:
+            self.close()
 
-        def wait_for_finished():
-            "Wait for PID in executor."
-            os.waitpid(self.pid, 0)
-            self.loop.call_soon(done)
+    async def _reap(self) -> None:
+        """
+        Wait for the child, then mark its end.
 
-        def done():
-            """
-            PID received. Back in the main thread.
+        **The slave side goes and the master stays.** A reap used to
+        close both at once, so whatever the kernel still held went
+        with them: the error a build printed as it died was lost about
+        one time in twelve, whenever the loop had not turned since the
+        write. Lillecarl/pymux#121.
 
-            **The slave side goes and the master stays.** A reap used
-            to close both at once, so whatever the kernel still held
-            went with them: the error a build printed as it died was
-            lost about one time in twelve, whenever the loop had not
-            turned since the write. Lillecarl/pymux#121.
+        Closing the slave is what makes the end of the file reachable.
+        While this process holds it open a read of the master answers
+        with nothing; with it closed the pump hands over what is left
+        and then an `EIO`, which `PtyReader` takes as the end. That
+        read is also what makes `is_terminated` true.
+        Lillecarl/pymux#120.
 
-            Closing the slave is what makes the end of the file
-            reachable. While this process holds it open a read of the
-            master answers with nothing; with it closed the loop hands
-            over what is left and then an `EIO`, which `PtyReader`
-            takes as the end. That read is also what makes
-            `is_terminated` true. Lillecarl/pymux#120.
+        The `finally` covers the scope going away first: a child a
+        cancelled scope leaves behind is killed rather than kept, so
+        the thread the wait parks on is freed and no program outlives
+        the test that started it. Only the cancelled path kills: on
+        the ordinary path the child is already reaped, and signalling
+        its number then could reach whatever the system gave it to
+        next. `send_signal` only signals a child that is still there
+        in any case.
+        """
+        try:
+            await anyio.to_thread.run_sync(self._wait_for_child)
+        except anyio.get_cancelled_exc_class():
+            self.send_signal(signal.SIGKILL)
+            raise
+        finally:
+            if self.slave is not None:
+                with contextlib.suppress(OSError):
+                    os.close(self.slave)
+                self.slave = None
 
-            `Process._read` calls `close` when it gets there.
-            """
-            os.close(self.slave)
-            self.slave = None
+            # **The pump is left as it is.** Resuming it here would
+            # read a pane that copy mode has stopped, and copy mode is
+            # the promise that no row of the screen changes while a
+            # person reads it. A resume picks the last words up, the
+            # way it picks up anything else a program wrote while
+            # nobody was reading.
+            self.ready_f.set()
 
-            # **The reader is left as it is.** Putting it back on the
-            # loop here would read a pane that copy mode has stopped,
-            # and copy mode is the promise that no row of the screen
-            # changes while a person reads it. A resume picks the last
-            # words up, the way it picks up anything else a program
-            # wrote while nobody was reading.
-
-            # Callback.
-            self.ready_f.set_result(None)
-
-        self.loop.run_in_executor(None, wait_for_finished)
+    def _wait_for_child(self) -> None:
+        "Wait for PID in a worker thread."
+        os.waitpid(self.pid, 0)
 
     def get_name(self):
         "Return the process name."

@@ -5,43 +5,15 @@ The child process.
 from __future__ import annotations
 
 import logging
-from asyncio import get_event_loop
 from collections.abc import Callable
+
+import anyio
 
 from .backends import Backend
 
 __all__ = ["Process"]
 
 logger = logging.getLogger(__name__)
-
-
-def _behind_what_is_already_queued(work: Callable[[], None]) -> None:
-    """
-    Run `work` after the callbacks the loop has queued now.
-
-    Parsing the output of a pane that nobody is looking at may wait,
-    and drawing for the person who is looking may not. asyncio's
-    `_ready` is first in, first out, so one `call_soon` is that yield:
-    everything queued before this runs before it.
-
-    **It used to poll for an idle loop, and an idle loop never comes.**
-    The test was `_ready` empty, retried on every turn until a
-    deadline. Anything that animates keeps `_ready` full -- a
-    prompt_toolkit redraw postpones itself by reposting on every turn,
-    so two pollers waited for each other and neither ever won. With
-    cmatrix in a window nobody looked at and one animating pane in the
-    window somebody did:
-
-        polling for an idle loop   100% of a core,  5 frames in 5s
-        this                        12% of a core, 31 frames in 5s
-
-    The frames go up because the loop stops spending its turns on the
-    question. Bounding the poll to one turn, or to eight, measured the
-    same as no poll at all, which is what says the polling never bought
-    a thing. Lillecarl/pymux#253, and Lillecarl/pymux#85 for why this
-    is here and not in a toolkit.
-    """
-    get_event_loop().call_soon(work)
 
 
 class Process:
@@ -74,7 +46,6 @@ class Process:
         done_callback: Callable[[], None] | None = None,
         has_priority: Callable[[], bool] | None = None,
     ) -> None:
-        self.loop = get_event_loop()
         self.receive = receive
         self.invalidate = invalidate or (lambda: None)
         self.backend = backend
@@ -82,22 +53,24 @@ class Process:
         self.has_priority = has_priority or (lambda: True)
 
         self.suspended = False
-        self._reader_connected = False
+        self._started = False
 
         # Create terminal interface.
         self.backend.add_input_ready_callback(self._read)
-
-        if done_callback is not None:
-            self.backend.ready_f.add_done_callback(lambda _: done_callback())
 
         #: The size of the pty, in columns and rows. Nothing has said
         #: yet, and `start` picks a size if nothing ever does.
         self.sx = 0
         self.sy = 0
 
-    def start(self) -> None:
+    async def start(self, task_group: anyio.TaskGroup) -> None:
         """
-        Start the process: fork child.
+        Start the process, watched by `task_group`.
+
+        The fork is in the backend, and the supervision with it: the
+        pump, the reaper and the watcher that fires `done_callback`
+        run as tasks of the group. Starting twice is refused -- two
+        pumps would feed every page twice.
 
         The size the pane already has wins. A render sets the size and
         then starts the program, so the child forks onto a pty of the
@@ -111,10 +84,16 @@ class Process:
         that starts the program before it draws. It gets what it always
         got.
         """
+        if self._started:
+            raise RuntimeError("this process is already started")
+        self._started = True
+
         if (self.sx, self.sy) == (0, 0):
             self.set_size(120, 24)
-        self.backend.start()
-        self.backend.connect_reader()
+        await self.backend.start(task_group)
+
+        if self.done_callback is not None and self.backend.ready_f is not None:
+            task_group.start_soon(self._watch_end)
 
     def set_size(self, width: int, height: int) -> None:
         """
@@ -141,54 +120,64 @@ class Process:
         """
         self.backend.write_text(data)
 
-    def _read(self) -> None:
+    async def _read(self) -> None:
         """
-        Read callback, called by the loop.
+        Read callback, awaited by the pump with every page.
+
+        A page is at most a page: reading a great deal at once gives
+        the event loop one long turn, and everything else waits for it.
+
+        A program that nobody is looking at waits for a turn of the
+        event loop that nothing else wants. One checkpoint is that
+        yield: the pump is rescheduled behind everything queued now,
+        and everything queued before it runs before it.
+
+        **It used to poll for an idle loop, and an idle loop never
+        comes.** The test was the loop's queue empty, retried on every
+        turn until a deadline. Anything that animates keeps the queue
+        full, so two pollers waited for each other and neither ever
+        won. With cmatrix in a window nobody looked at and one
+        animating pane in the window somebody did, polling took 100%
+        of a core for 5 frames in 5s, and one yield took 12% for 31.
+        Lillecarl/pymux#253.
         """
-        d = self.backend.read_text(4096)
-        assert isinstance(d, str), "got %r" % type(d)
-        # Make sure not to read too much at once. (Otherwise, this
-        # could block the event loop.)
+        page = self.backend.read_text(4096)
+        assert isinstance(page, str), "got %r" % type(page)
 
-        if not self.backend.closed:
+        # Feed directly, if this process has priority. (That is when this
+        # pane has the focus in any of the clients.)
+        if self.has_priority():
+            self._feed(page)
 
-            def process() -> None:
-                try:
-                    self.receive(d)
-                except Exception:
-                    # One sequence that the emulator cannot handle must
-                    # not stop the pane: the program would then wait
-                    # forever for a reply that never comes.
-                    logger.exception("Feeding the terminal emulator failed.")
-                self.invalidate()
-
-            # Feed directly, if this process has priority. (That is when this
-            # pane has the focus in any of the clients.)
-            if self.has_priority():
-                process()
-
-            # Otherwise, postpone processing until we have CPU time available.
-            else:
-                self.backend.disconnect_reader()
-
-                def do_asap():
-                    "Process output and reconnect to event loop."
-                    process()
-                    if not self.suspended:
-                        self.backend.connect_reader()
-
-                _behind_what_is_already_queued(do_asap)
+        # Otherwise, postpone processing until we have CPU time available.
         else:
-            # End of stream. Remove child, and let the pty go.
-            #
-            # **The reap cannot do it.** A program writes its last
-            # words and exits, and the kernel still holds them; they
-            # are read on the turns of the loop after the reap, and a
-            # close there threw them away. So the reap closes the
-            # slave side, which is what makes this read reach the end
-            # of the file, and this closes the rest.
-            # Lillecarl/pymux#121.
-            self.backend.close()
+            await anyio.lowlevel.checkpoint()
+            self._feed(page)
+
+    def _feed(self, page: str) -> None:
+        try:
+            self.receive(page)
+        except Exception:
+            # One sequence that the emulator cannot handle must
+            # not stop the pane: the program would then wait
+            # forever for a reply that never comes.
+            logger.exception("Feeding the terminal emulator failed.")
+        self.invalidate()
+
+    async def _watch_end(self) -> None:
+        """
+        Fire `done_callback` when the program ends.
+
+        A `done_callback` that raises must not take the scope with it:
+        it is the embedder's bug, and the group holds the programs of
+        every pane. So it is logged the way a feed failure is, and the
+        watcher ends.
+        """
+        await self.backend.ready_f.wait()
+        try:
+            self.done_callback()
+        except Exception:
+            logger.exception("The done callback failed.")
 
     def suspend(self) -> None:
         """
@@ -196,14 +185,14 @@ class Process:
         """
         if not self.suspended:
             self.suspended = True
-            self.backend.disconnect_reader()
+            self.backend.pause_reading()
 
     def resume(self) -> None:
         """
         Resume from 'suspend'.
         """
         if self.suspended:
-            self.backend.connect_reader()
+            self.backend.resume_reading()
             self.suspended = False
 
     def get_cwd(self) -> str:

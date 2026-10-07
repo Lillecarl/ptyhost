@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from asyncio import Future, Task, get_event_loop
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
+import anyio
 from asyncssh import SSHClientChannel, SSHClientConnection, SSHClientSession
 
 from .base import Backend
@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 class AsyncSSHBackend(Backend):
     """
     Display asyncssh client session.
+
+    asyncssh speaks asyncio: the channel calls back on the asyncio
+    loop, and `create_session` needs one running. The group this
+    starts into runs on it wherever a remote pane runs, the way
+    pymux's ssh forwarding does. What this backend adds around it --
+    the end event, the feeder, the supervision -- is anyio.
     """
 
     def __init__(
@@ -29,36 +35,55 @@ class AsyncSSHBackend(Backend):
         self._channel: SSHClientChannel | None = None
         self._session: SSHClientSession | None = None
 
-        self._reader_connected = False
-        self._input_ready_callbacks: list[Callable[[], None]] = []
+        self._input_ready_callbacks: list[Callable[[], Awaitable[None]]] = []
         self._receive_buffer: list[str] = []
-        self.ready_f: Future[None] = Future()
+        self.ready_f: anyio.Event = anyio.Event()
 
-        self.loop = get_event_loop()
+        #: Wakes the feeder when the channel hands something over. The
+        #: buffer is the truth and this is only the wakeup: anything
+        #: that arrives between the wake and the drain is in the
+        #: buffer, so the drain takes it anyway.
+        self._arrived = anyio.Event()
 
-    def start(self) -> None:
+        #: Whether the feeder hands pages over. Copy mode parks it;
+        #: pausing the channel as well stops the remote from sending.
+        self._reading = anyio.Event()
+        self._reading.set()
+
+    async def start(self, task_group: anyio.TaskGroup) -> None:
+        """
+        Ask for the session, watched by `task_group`.
+
+        The opener resolves `ready_f` either way: `create_session`
+        raises for everything a remote can refuse -- the host, the
+        credentials, the command, the pty -- and a session that was
+        never made has ended as surely as one that exited. Left
+        pending, a caller waiting for the program to end waits for
+        ever with nothing in any log. Lillecarl/pymux#265.
+        """
+        task_group.start_soon(self._open_session)
+        task_group.start_soon(self._feed_arrived)
+
+    async def _open_session(self) -> None:
         class Session(SSHClientSession):
             def connection_made(_, chan):
                 pass
 
             def connection_lost(_, exc):
-                self.ready_f.set_result(None)
+                self.ready_f.set()
+                self._arrived.set()
 
             def session_started(_):
                 pass
 
             def data_received(_, data, datatype):
-                send_signal = len(self._receive_buffer) == 0
                 self._receive_buffer.append(data)
-
-                if send_signal:
-                    for cb in self._input_ready_callbacks:
-                        cb()
+                self._arrived.set()
 
             def exit_signal_received(self, signal, core_dumped, msg, lang):
                 pass
 
-        async def run() -> None:
+        try:
             (
                 self._channel,
                 self._session,
@@ -73,54 +98,54 @@ class AsyncSSHBackend(Backend):
                 term_size=(24, 80),
                 encoding="utf-8",
             )
-
-        # Held, and asked what it did. A task nobody holds may be collected
-        # while it still runs, and what it raised is delivered nowhere until
-        # the loop shuts down. Lillecarl/pymux#265.
-        self._starting = self.loop.create_task(run())
-        self._starting.add_done_callback(self._session_started)
-
-    def _session_started(self, task: Task[None]) -> None:
-        """
-        What happened to the session this backend asked for.
-
-        `create_session` raises for everything a remote can refuse: the
-        host, the credentials, the command, the pty. Nothing awaits the
-        task that calls it, so this is the only place that failure can be
-        heard at all.
-
-        `ready_f` is resolved either way. A caller waits on it through a
-        done callback that means "the program ended", and a session that
-        was never made has ended as surely as one that exited. Left
-        pending, it is a pane that waits for ever with nothing in any log.
-        """
-        if task.cancelled():
-            return
-
-        error = task.exception()
-        if error is not None:
+        except anyio.get_cancelled_exc_class():
+            raise
+        except Exception as error:
             logger.error("Could not start the remote session: %s", error)
+            self.ready_f.set()
+            # Wake the feeder so it sees the end. Nothing will ever
+            # arrive, and a feeder that waits for it waits for ever.
+            self._arrived.set()
 
-        if not self.ready_f.done():
-            self.ready_f.set_result(None)
+    async def _feed_arrived(self) -> None:
+        """
+        Hand over everything the channel holds, as it arrives.
 
-    def add_input_ready_callback(self, callback: Callable[[], None]) -> None:
-        if not self._reader_connected:
-            self._input_ready_callbacks.append(callback)
-
-    def connect_reader(self) -> None:
-        if self._channel:
-            self._channel.resume_reading()
+        The drain takes the whole buffer every time, so nothing the
+        wakeup raced with is left behind for the next one. When the
+        session is over and the buffer is empty there is nothing left
+        to wait for, so the feeder ends: leaving the scope must not
+        wait on a task that never ends.
+        """
+        while True:
+            await self._reading.wait()
+            await self._arrived.wait()
+            # A fresh wakeup for the next turn. Anything that arrives
+            # between the wake and this line is in the buffer, so the
+            # drain below takes it anyway.
+            self._arrived = anyio.Event()
+            for callback in self._input_ready_callbacks:
+                await callback()
+            if self.ready_f.is_set() and not self._receive_buffer:
+                return
 
     @property
     def closed(self) -> bool:
         return False  # TODO
         # return self._reader.closed
 
-    def disconnect_reader(self) -> None:
-        if self._channel is not None and self._reader_connected:
+    def add_input_ready_callback(self, callback: Callable[[], Awaitable[None]]) -> None:
+        self._input_ready_callbacks.append(callback)
+
+    def pause_reading(self) -> None:
+        if self._channel is not None:
             self._channel.pause_reading()
-            self._reader_connected = False
+        self._reading = anyio.Event()
+
+    def resume_reading(self) -> None:
+        if self._channel is not None:
+            self._channel.resume_reading()
+        self._reading.set()
 
     def read_text(self, amount: int = 4096) -> str:
         """

@@ -6,7 +6,7 @@ loop.
 from __future__ import annotations
 
 import ctypes
-from asyncio import Event, Future, ensure_future, get_event_loop
+from asyncio import Future, ensure_future, get_running_loop
 from ctypes import (
     POINTER,
     Structure,
@@ -16,6 +16,8 @@ from ctypes import (
     windll,
 )
 from ctypes.wintypes import BOOL, DWORD, HANDLE, ULONG
+
+import anyio
 
 __all__ = [
     "PipeReader",
@@ -63,6 +65,12 @@ class OVERLAPPED(Structure):
 class PipeReader:
     """
     Asynchronous reader for win32 pipes.
+
+    Still asyncio throughout: waiting on a Windows handle has no
+    anyio spelling, so the reader spawns itself on the running asyncio
+    loop and waits on handles through it. The one crossing is the
+    pause event, whose set/clear/wait need no loop at all. Unverified
+    on Linux -- kept compiling and honest, not migrated.
     """
 
     def __init__(self, pipe_name, read_callback, done_callback):
@@ -89,7 +97,7 @@ class PipeReader:
         )
         self._overlapped.hEvent = self._event
 
-        self._reading = Event()
+        self._reading = anyio.Event()
 
         # Start reader coroutine.
         ensure_future(self._async_reader())
@@ -101,10 +109,10 @@ class PipeReader:
         f = Future()
 
         def ready() -> None:
-            get_event_loop().remove_win32_handle(self._event)
+            get_running_loop().remove_win32_handle(self._event)
             f.set_result(None)
 
-        get_event_loop().add_win32_handle(self._event, ready)
+        get_running_loop().add_win32_handle(self._event, ready)
 
         return f
 
@@ -131,7 +139,7 @@ class PipeReader:
 
             if success:
                 buffer[c_read.value] = b"\0"
-                self.read_callback(buffer.value.decode("utf-8", "ignore"))
+                await self.read_callback(buffer.value.decode("utf-8", "ignore"))
 
             else:
                 error_code = windll.kernel32.GetLastError()
@@ -150,7 +158,7 @@ class PipeReader:
 
                     if success:
                         buffer[c_read.value] = b"\0"
-                        self.read_callback(buffer.value.decode("utf-8", "ignore"))
+                        await self.read_callback(buffer.value.decode("utf-8", "ignore"))
 
                 elif error_code == ERROR_BROKEN_PIPE:
                     self.stop_reading()
@@ -162,7 +170,7 @@ class PipeReader:
         self._reading.set()
 
     def stop_reading(self):
-        self._reading.clear()
+        self._reading = anyio.Event()
 
 
 class PipeWriter:

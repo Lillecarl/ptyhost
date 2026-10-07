@@ -4,7 +4,7 @@ What this package may import.
 `ptyhost` exists so that two terminal widgets can share one pty layer
 without either of them dragging its toolkit in behind it
 (Lillecarl/pymux#85). That only holds while this package depends on
-nothing, and nothing but a habit would keep it that way.
+anyio and nothing else, and nothing but a habit would keep it that way.
 
 So this reads the imports of every module and holds them to the rule.
 An import that breaks it fails here, and not in a widget a month
@@ -23,9 +23,10 @@ import ptyhost
 PACKAGE = Path(ptyhost.__file__).parent
 
 #: Everything outside the standard library. A pty is the operating
-#: system, and `yawinpty` is the pty of Windows, which is the only
-#: thing this package cannot write itself.
-MAY_IMPORT_OUTSIDE = {"yawinpty", "asyncssh"}
+#: system, `yawinpty` is the pty of Windows, asyncssh is the pty of a
+#: remote machine, and anyio is how this package waits -- and each is
+#: the only thing of its kind this package cannot write itself.
+MAY_IMPORT_OUTSIDE = {"yawinpty", "asyncssh", "anyio"}
 
 #: The parsers and the toolkits. A widget brings its own, and this
 #: package is what the widgets have in common.
@@ -78,7 +79,8 @@ def test_no_module_imports_a_parser_or_a_toolkit(path):
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
 def test_no_module_imports_a_third_party_package(path):
     """
-    Beyond the two that carry a pty this package cannot open itself.
+    Beyond the three that carry a pty or a wait this package cannot
+    open itself.
 
     A dependency here is a dependency of every widget that draws a
     terminal, so each one has to be argued for rather than added.

@@ -10,26 +10,30 @@ readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 requires-python = ">=3.14"
-# Almost nothing. Running a program on a pty needs the standard library
-# and the operating system, and that is the point of this package: a
-# widget that depends on it takes on no toolkit and no parser.
-# Lillecarl/pymux#85.
+# One thing, and the collection's one. Running a program on a pty waits --
+# for the child to end, for the master side to say something, for a turn
+# of the loop nobody else wants -- and anyio is how this package waits:
+# events, task groups, worker threads. `Future` and `call_soon` were
+# the asyncio spellings of the same waits.
+#
+# The floor is the collection's: pymux needs 4.7 for `notify_closing`,
+# and one floor for the collection beats one per package.
+# Lillecarl/pymux#87.
 #
 # Windows has no pty, so it needs a library to pretend. The marker is
 # what `setup.py` spelled as an `if` around an append, and a marker is
 # read without running anything.
 dependencies = [
+    "anyio>=4.7.0",
     "yawinpty; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
-# What a check installs, beside what ptyhost itself needs. anyio carries
-# the pytest plugin that runs a coroutine test; without it pytest fails
-# one with "async def functions are not natively supported", and what
-# this package does is asynchronous throughout.
+# What a check installs, beside what ptyhost itself needs. anyio used
+# to be named here for the pytest plugin that runs a coroutine test,
+# and now it arrives with the package and carries the plugin with it.
 test = [
     "pytest",
-    "anyio",
     # The remote backend. `ptyhost.backends.asyncssh` imports it at the
     # top, and `backends/__init__.py` imports only `base`, so nothing
     # pulls it in at run time -- a person who wants a remote pane

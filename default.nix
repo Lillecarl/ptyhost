@@ -1,10 +1,11 @@
 # The package this repository builds. The suite that judges it lives in
 # `nix/checks.nix`, which declares its own inputs.
 #
-# **It takes no python dependency at all on this platform.** Running a program
-# on a pty needs the standard library and the operating system, and that is
-# the whole point of this package: a widget that depends on it takes on no
-# toolkit and no parser. Lillecarl/pymux#85.
+# **It takes one python dependency: anyio.** Running a program on a pty
+# waits -- for the child, for the master side, for a turn of the loop --
+# and anyio is how this package waits. No toolkit and no parser besides:
+# a widget that depends on it takes on nothing that draws.
+# Lillecarl/pymux#85.
 #
 # **This is a pyproject.nix builders package, not a nixpkgs one.** What it
 # needs is declared in `pyproject.toml` and the renderer reads it; an

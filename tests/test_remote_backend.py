@@ -1,18 +1,24 @@
 """
 What the remote backend does when the remote says no.
 
-`AsyncSSHBackend.start` asks for a session in a task, and nothing awaits
-that task. So a refusal -- the host, the credentials, the command, the
-pty -- had nowhere to go: the exception was delivered when the loop shut
-down, if ever, and `ready_f` stayed pending for ever. A caller waits on
-`ready_f` through a done callback that means "the program ended", so a
-pane waited with nothing in any log. Lillecarl/pymux#265.
+`AsyncSSHBackend.start` asks for a session in a task of the caller's
+group. So a refusal -- the host, the credentials, the command, the
+pty -- is heard where the opener runs: it is logged, and `ready_f` is
+resolved either way. A caller waits on `ready_f` for the program to
+end, and a session that was never made has ended as surely as one
+that exited. Left pending, it is a pane that waits for ever with
+nothing in any log. Lillecarl/pymux#265.
+
+A task the group owns needs no holding, either: the reference the
+old code kept so the collector would not take a pending task is the
+group itself now, and leaving the scope cancels what is still asking.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
+
+import anyio
 
 from ptyhost.backends.asyncssh import AsyncSSHBackend
 
@@ -27,45 +33,43 @@ class RefusingConnection:
         raise self.error
 
 
-async def _started(backend):
-    "Wait for `ready_f`, and say whether it arrived."
-    try:
-        await asyncio.wait_for(asyncio.shield(backend.ready_f), 5.0)
-    except TimeoutError:
-        return False
-    return True
-
-
 async def test_a_refused_session_ends_the_wait(caplog):
     error = ConnectionRefusedError("nobody listening")
     backend = AsyncSSHBackend(RefusingConnection(error))
 
     with caplog.at_level(logging.ERROR):
-        backend.start()
-        assert await _started(backend), "ready_f never resolved"
+        async with anyio.create_task_group() as task_group:
+            await backend.start(task_group)
+            with anyio.fail_after(5.0):
+                await backend.ready_f.wait()
 
     assert "nobody listening" in caplog.text, caplog.text
 
 
-async def test_the_task_is_held_while_it_runs():
+async def test_a_session_that_never_answers_dies_with_its_scope():
     """
-    A task nobody holds may be collected while it is still pending.
+    Leaving the scope cancels the opener, and nothing is left asking.
 
-    The reference is what stops that, so this says the reference is
-    there rather than trying to provoke the collector.
+    The old code held the task in `backend._starting` so the collector
+    would not take it while it still ran. The group holds it now, and
+    the group going away cancels it: no channel was made, and no task
+    of the backend outlives the scope that started it.
     """
-    started = asyncio.Event()
+    started = anyio.Event()
 
     class SlowConnection:
         async def create_session(self, **named):
             started.set()
-            await asyncio.sleep(10)
+            await anyio.sleep(10)
 
     backend = AsyncSSHBackend(SlowConnection())
-    backend.start()
-    await asyncio.wait_for(started.wait(), 5.0)
+    async with anyio.create_task_group() as task_group:
+        await backend.start(task_group)
+        with anyio.fail_after(5.0):
+            await started.wait()
+        # Leaving the scope waits for its tasks, and the opener is
+        # still asking: cancel it first, the way abandoning a program
+        # cancels its pump.
+        task_group.cancel_scope.cancel()
 
-    assert backend._starting is not None
-    assert not backend._starting.done()
-
-    backend._starting.cancel()
+    assert backend._channel is None
