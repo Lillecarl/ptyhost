@@ -11,6 +11,7 @@ import traceback
 import warnings
 
 import anyio
+import anyio.abc
 
 from .base import Backend
 from .posix_utils import PtyReader, pty_make_controlling_tty, set_terminal_size
@@ -157,7 +158,7 @@ class PosixBackend(Backend):
         if self.master is not None:
             set_terminal_size(self.master, height, width, self.cell)
 
-    async def start(self, task_group: anyio.TaskGroup) -> None:
+    async def start(self, task_group: anyio.abc.TaskGroup) -> None:
         """
         Create fork and start the child process, watched by `task_group`.
 

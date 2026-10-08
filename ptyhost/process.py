@@ -8,6 +8,7 @@ import logging
 from collections.abc import Callable
 
 import anyio
+import anyio.abc
 
 from .backends import Backend
 
@@ -63,7 +64,7 @@ class Process:
         self.sx = 0
         self.sy = 0
 
-    async def start(self, task_group: anyio.TaskGroup | None = None) -> None:
+    async def start(self, task_group: anyio.abc.TaskGroup | None = None) -> None:
         """
         Start the process, watched by `task_group`.
 

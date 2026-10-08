@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 import anyio
+import anyio.abc
 from yawinpty import Pty, SpawnConfig
 
 from .base import Backend
@@ -113,7 +114,7 @@ class Win32Backend(Backend):
         "Set terminal size."
         self.pty.set_size(width, height)
 
-    async def start(self, task_group: anyio.TaskGroup) -> None:
+    async def start(self, task_group: anyio.abc.TaskGroup) -> None:
         """
         Start the terminal process, watched by `task_group`.
 

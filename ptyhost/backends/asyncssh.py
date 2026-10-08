@@ -4,6 +4,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 import anyio
+import anyio.abc
 from asyncssh import SSHClientChannel, SSHClientConnection, SSHClientSession
 
 from .base import Backend
@@ -50,7 +51,7 @@ class AsyncSSHBackend(Backend):
         self._reading = anyio.Event()
         self._reading.set()
 
-    async def start(self, task_group: anyio.TaskGroup) -> None:
+    async def start(self, task_group: anyio.abc.TaskGroup) -> None:
         """
         Ask for the session, watched by `task_group`.
 
