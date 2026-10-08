@@ -63,7 +63,7 @@ class Process:
         self.sx = 0
         self.sy = 0
 
-    async def start(self, task_group: anyio.TaskGroup) -> None:
+    async def start(self, task_group: anyio.TaskGroup | None = None) -> None:
         """
         Start the process, watched by `task_group`.
 
@@ -71,6 +71,11 @@ class Process:
         pump, the reaper and the watcher that fires `done_callback`
         run as tasks of the group. Starting twice is refused -- two
         pumps would feed every page twice.
+
+        Without a group only a backend with no end starts: there is
+        nothing to watch, so there is nothing the group would hold. A
+        program that ends unwatched would outlive the scope that
+        started it, and that is refused rather than run.
 
         The size the pane already has wins. A render sets the size and
         then starts the program, so the child forks onto a pty of the
@@ -87,6 +92,9 @@ class Process:
         if self._started:
             raise RuntimeError("this process is already started")
         self._started = True
+
+        if task_group is None and self.backend.ready_f is not None:
+            raise RuntimeError("a process with an end needs a task group to watch it")
 
         if (self.sx, self.sy) == (0, 0):
             self.set_size(120, 24)
