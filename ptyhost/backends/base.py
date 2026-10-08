@@ -29,7 +29,7 @@ class Backend(metaclass=abc.ABCMeta):
     #: `getattr(backend, "pid", None)`, which answers the same for a
     #: backend that has no id and for a field somebody renamed.
     #: Lillecarl/pymux#138.
-    pid = None
+    pid: int | None = None
 
     #: Set when the program ends. An `anyio.Event`: `Process` waits on
     #: it to fire `done_callback`, and a test waits on it to say the

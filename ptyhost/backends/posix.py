@@ -35,8 +35,11 @@ class PosixBackend(Backend):
         self.exec_func = exec_func
         self.cell = cell
 
-        # Create pseudo terminal for this pane.
-        self.master, self.slave = os.openpty()
+        # Create pseudo terminal for this pane. Each end is `None` once
+        # it is closed.
+        master, slave = os.openpty()
+        self.master: int | None = master
+        self.slave: int | None = slave
 
         # Master side -> attached to terminal emulator.
         self._reader = PtyReader(self.master, errors="replace")
@@ -53,7 +56,7 @@ class PosixBackend(Backend):
         self._reading = anyio.Event()
         self._reading.set()
 
-        self.pid = None
+        self.pid: int | None = None
 
     def add_input_ready_callback(self, callback):
         self._input_ready_callbacks.append(callback)
