@@ -106,6 +106,8 @@ _STANDARD_LIBRARY = {
     "collections",
     "contextlib",
     "ctypes",
+    # The error an adopted pty that is not one raises with.
+    "errno",
     "fcntl",
     "getpass",
     "io",
@@ -119,6 +121,8 @@ _STANDARD_LIBRARY = {
     "select",
     "shutil",
     "signal",
+    # Whether an adopted fd is a character device at all.
+    "stat",
     "struct",
     "sys",
     "termios",
