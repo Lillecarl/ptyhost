@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import ClassVar
 
 import anyio
 import anyio.abc
@@ -38,6 +39,21 @@ class Process:
         be read at once. Otherwise it waits for a turn of the event
         loop that nothing else wants.
     """
+
+    #: What a hot upgrade does with each attribute: "saved", "rebuilt"
+    #: or "dropped", as `pyte.keep.Keep` defines them. Strings, because
+    #: ptyhost does not import pyte. Lillecarl/pymux#399.
+    KEEP: ClassVar[dict[str, str]] = {
+        "backend": "saved",
+        "sx": "saved",
+        "sy": "saved",
+        "suspended": "saved",
+        "_started": "rebuilt",  # an adopted program is already started
+        "receive": "rebuilt",
+        "invalidate": "rebuilt",
+        "done_callback": "rebuilt",
+        "has_priority": "rebuilt",
+    }
 
     def __init__(
         self,

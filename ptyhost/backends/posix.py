@@ -9,6 +9,7 @@ import sys
 import time
 import traceback
 import warnings
+from typing import ClassVar
 
 import anyio
 import anyio.abc
@@ -30,6 +31,21 @@ class PosixBackend(Backend):
         the screen's answer to "CSI 16 t", so whoever holds the screen
         passes it; nothing said means nothing claimed.
     """
+
+    #: What a hot upgrade does with each attribute, as `Process.KEEP`
+    #: says. The fds and the pid survive `execve` in the kernel; the
+    #: reader is saved for the partial UTF-8 bytes its decoder holds.
+    KEEP: ClassVar[dict[str, str]] = {
+        "master": "saved",
+        "slave": "saved",
+        "pid": "saved",
+        "_reader": "saved",
+        "cell": "rebuilt",
+        "_reading": "rebuilt",  # set or not from `Process.suspended`
+        "_input_ready_callbacks": "rebuilt",
+        "exec_func": "dropped",  # the program is running already
+        "ready_f": "dropped",  # a new reaper sets a new one
+    }
 
     def __init__(self, exec_func, cell=(0, 0)):
         self.exec_func = exec_func
