@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import contextlib
+import errno
+import fcntl
 import logging
 import os
 import resource
 import signal
+import stat
+import struct
 import sys
 import time
 import traceback
@@ -107,7 +111,12 @@ class PosixBackend(Backend):
         A backend for a program another owner started: its pty and its
         pid, which survive `execve` in the kernel. `start` forks nothing
         for it, and pumps and reaps it as its own. Lillecarl/pymux#399.
+
+        Raises `OSError` when the fds are not that pty. A number is only
+        what the old owner wrote down, and a wrong one would send the
+        pane's keystrokes into some other file.
         """
+        verify_pty(master, slave)
         backend = cls(None, cell=cell, pty=(master, slave))  # type: ignore[arg-type]
         backend.pid = pid
         return backend
@@ -474,6 +483,31 @@ else:
         Return the process name for a given process ID.
         """
         return
+
+
+#: `_IOR('T', 0x30, unsigned int)`: the index N of `/dev/pts/N` that a
+#: pty master belongs to. The `termios` module does not export it.
+TIOCGPTN = 0x80045430
+
+
+def verify_pty(master: int, slave: int | None) -> None:
+    """
+    Raise `OSError` unless `master` is a pty master and `slave` its slave.
+
+    Every master stats as `/dev/ptmx` (5:2), so two stats cannot pair the
+    ends; on Linux the master's TIOCGPTN index has to equal the slave's
+    minor number. Measured in `examples/exec_seam_poc.py` of pymux.
+    """
+    if not stat.S_ISCHR(os.fstat(master).st_mode):
+        raise OSError(errno.ENOTTY, "fd %d is not a pty master" % master)
+    if slave is None:
+        return
+    if not os.isatty(slave):
+        raise OSError(errno.ENOTTY, "fd %d is not a terminal" % slave)
+    if sys.platform.startswith("linux"):
+        index = struct.unpack("I", fcntl.ioctl(master, TIOCGPTN, b"\0" * 4))[0]
+        if os.minor(os.fstat(slave).st_rdev) != index:
+            raise OSError(errno.ENOTTY, "fd %d and fd %d are two ptys" % (master, slave))
 
 
 def get_cwd_for_pid(pid):

@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 
 import anyio
+import pytest
 from test_running_a_program import TIMEOUT, until
 
 from ptyhost import Process
@@ -70,6 +71,20 @@ async def test_a_released_backend_leaves_the_pty_open():
         finally:
             os.kill(pid, 9)
             os.close(master)
+
+
+def test_an_adoption_refuses_fds_that_are_not_one_pty():
+    first, second = os.openpty(), os.openpty()
+    read, write = os.pipe()
+    try:
+        PosixBackend.adopt(first[0], first[1], os.getpid())
+        PosixBackend.adopt(first[0], None, os.getpid())
+        for master, slave in ((first[0], second[1]), (read, first[1]), (first[0], write)):
+            with pytest.raises(OSError):
+                PosixBackend.adopt(master, slave, os.getpid())
+    finally:
+        for fd in (*first, *second, read, write):
+            os.close(fd)
 
 
 def test_a_character_cut_in_two_survives_a_new_reader():
