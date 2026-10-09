@@ -43,17 +43,17 @@ class PosixBackend(Backend):
         "cell": "rebuilt",
         "_reading": "rebuilt",  # set or not from `Process.suspended`
         "_input_ready_callbacks": "rebuilt",
-        "exec_func": "dropped",  # the program is running already
+        "exec_func": "dropped",  # the program is running already; `adopt` takes the rest
         "ready_f": "dropped",  # a new reaper sets a new one
     }
 
-    def __init__(self, exec_func, cell=(0, 0)):
+    def __init__(self, exec_func, cell=(0, 0), pty: tuple[int, int] | None = None):
         self.exec_func = exec_func
         self.cell = cell
 
-        # Create pseudo terminal for this pane. Each end is `None` once
-        # it is closed.
-        master, slave = os.openpty()
+        # Create pseudo terminal for this pane, unless `adopt` hands one
+        # over. Each end is `None` once it is closed.
+        master, slave = pty if pty is not None else os.openpty()
         self.master: int | None = master
         self.slave: int | None = slave
 
@@ -100,6 +100,32 @@ class PosixBackend(Backend):
                     os.execv(path, command)
 
         return cls(execv, cell=cell)
+
+    @classmethod
+    def adopt(cls, master: int, slave: int | None, pid: int, cell=(0, 0)):
+        """
+        A backend for a program another owner started: its pty and its
+        pid, which survive `execve` in the kernel. `start` forks nothing
+        for it, and pumps and reaps it as its own. Lillecarl/pymux#399.
+        """
+        backend = cls(None, cell=cell, pty=(master, slave))  # type: ignore[arg-type]
+        backend.pid = pid
+        return backend
+
+    def release(self):
+        """
+        Give the pty and the child to another owner, and stop serving them.
+
+        The fds stay open and the child is never signalled: the new owner
+        holds them. The pump is woken off the fd, so it reads no byte the
+        new owner should, and a reaper still waiting finds no pid to kill
+        when its scope goes.
+        """
+        if self.master is not None:
+            anyio.notify_closing(self.master)
+        self.master = None
+        self.slave = None
+        self.pid = None
 
     def pause_reading(self):
         """
@@ -186,6 +212,12 @@ class PosixBackend(Backend):
         ends them: the pump lets the master side go, and the reaper
         kills a child the scope leaves behind rather than keeping it.
         """
+        if self.pid is not None:
+            # Adopted: the program runs already.
+            task_group.start_soon(self._pump)
+            task_group.start_soon(self._reap)
+            return
+
         # CPython warns about a fork in a threaded process. The child
         # here execs at once, and between the fork and the exec it
         # touches only os-level calls; a pty child has no posix_spawn
@@ -366,7 +398,13 @@ class PosixBackend(Backend):
 
     def _wait_for_child(self) -> None:
         "Wait for PID in a worker thread."
-        os.waitpid(self.pid, 0)
+        # A child the owner before an adoption also waited on may be
+        # reaped there first; either way it has ended.
+        pid = self.pid
+        if pid is None:
+            return  # released before this thread ran
+        with contextlib.suppress(ChildProcessError):
+            os.waitpid(pid, 0)
 
     def get_name(self):
         "Return the process name."

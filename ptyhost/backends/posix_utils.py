@@ -10,6 +10,7 @@ import os
 import select
 import termios
 from codecs import getincrementaldecoder
+from typing import ClassVar
 
 #: The pixel fields of `struct winsize` are unsigned shorts, and the
 #: array that carries them is signed. Anything above this is not
@@ -44,6 +45,17 @@ class PtyReader:
         terminal does with a program that writes rubbish.
     """
 
+    #: What a hot upgrade does with each attribute, as `Process.KEEP`
+    #: says. The decoder holds the first bytes of a character the last
+    #: read cut in two; `decoder_state` carries them. Lillecarl/pymux#399.
+    KEEP: ClassVar[dict[str, str]] = {
+        "fd": "rebuilt",  # the backend's master, which `adopt` hands over
+        "errors": "rebuilt",
+        "_decoder": "rebuilt",
+        "decoder_state": "saved",
+        "closed": "saved",
+    }
+
     def __init__(self, fd: int, errors: str = "replace", encoding: str = "utf-8") -> None:
         self.fd = fd
         self.errors = errors
@@ -54,6 +66,15 @@ class PtyReader:
 
         #: True when there is nothing more to read, ever.
         self.closed = False
+
+    @property
+    def decoder_state(self) -> tuple[bytes, int]:
+        "The bytes the decoder holds back, as `codecs` states them."
+        return self._decoder.getstate()
+
+    @decoder_state.setter
+    def decoder_state(self, state: tuple[bytes, int]) -> None:
+        self._decoder.setstate(tuple(state))
 
     def read(self, count: int = 1024) -> str:
         """
