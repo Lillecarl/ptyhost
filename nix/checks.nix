@@ -28,6 +28,15 @@ let
   #       nix build --file . checks.ptyhost-unit
   selection = builtins.getEnv "PTYHOST_TESTS";
 
+  # How long one test may run before `tests/conftest.py` dumps every
+  # stack and ends the run. `PTYHOST_HANG_SECONDS` changes it for one
+  # run. Lillecarl/pymux#546.
+  hangIsSeconds =
+    let
+      value = builtins.getEnv "PTYHOST_HANG_SECONDS";
+    in
+    if value == "" then "120" else value;
+
   prepare = ''
     cp -r ${testSources}/tests .
     cp ${testSources}/pyproject.toml .
@@ -43,7 +52,10 @@ in
   unit = suite {
     name = "ptyhost-unit";
     inputs = [ testEnv ];
-    env = { inherit selection; };
+    env = {
+      inherit selection;
+      PTYHOST_HANG_SECONDS = hangIsSeconds;
+    };
     setup = prepare;
   } "python -m pytest $selection -q -p no:cacheprovider";
 
