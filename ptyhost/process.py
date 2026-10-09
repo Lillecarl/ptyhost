@@ -120,6 +120,11 @@ class Process:
         if self.done_callback is not None and self.backend.ready_f is not None:
             task_group.start_soon(self._watch_end)
 
+    def after_thaw(self) -> None:
+        "A thawed process that was suspended parks its pump again."
+        if self.suspended:
+            self.backend.pause_reading()
+
     def set_size(self, width: int, height: int) -> None:
         """
         Tell the pty how big it is.
