@@ -8,6 +8,7 @@ fixture). Lillecarl/pymux#553.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 
 import anyio
@@ -138,3 +139,23 @@ async def test_a_program_outlives_its_holder_and_ends_with_its_file(holder):
         with anyio.fail_after(TIMEOUT):
             await ended.wait()
         holding.close()
+
+
+async def test_a_held_program_has_exec_d_by_the_reply(holder):
+    "The holder answers a spawn once the exec is done. Lillecarl/pymux#562."
+    sleep = shutil.which("sleep")
+    if sleep is None:
+        pytest.skip("no sleep on the PATH")
+    path, _ = holder
+    holding = await Holding.connect(path)
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(holding.run)
+        backend = HeldBackend(holding, spawn_of([sleep, "30"]))
+        process = Process(backend=backend, receive=lambda data: None)
+        process.set_size(80, 24)
+        await process.start(task_group)
+        try:
+            assert os.path.basename(backend.get_name() or "") == "sleep"
+        finally:
+            process.kill()
+            holding.close()

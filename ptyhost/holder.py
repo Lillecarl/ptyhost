@@ -36,7 +36,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from .spawn import Spawn, run_in_child
+from .spawn import Spawn, exec_pipe, run_in_child, wait_for_exec
 
 __all__ = ("VERSION", "HolderClient", "HolderError", "main", "receive", "send", "spawn_request")
 
@@ -270,14 +270,21 @@ class Holder:
             raise HolderError("a spawn carries the master and the slave of a pty, not %d fds" % (len(fds),))
         spawn = Spawn(list(message["command"]), dict(message["environment"]), message.get("directory"))
         master, slave = (os.dup(fd) for fd in fds)
+        read_end, exec_end = exec_pipe()
         try:
             pid = os.fork()
         except BaseException:
-            _close_all((master, slave))
+            _close_all((master, slave, read_end, exec_end))
             raise
         if pid == 0:
-            run_in_child(spawn, master, slave)
+            os.close(read_end)
+            run_in_child(spawn, master, slave, exec_end)
+        os.close(exec_end)
         os.close(slave)
+        # The reply waits for the exec, so the server never holds a
+        # pane whose foreground is still this fork. An exec takes
+        # milliseconds, and a failed one closes the pipe first.
+        wait_for_exec(read_end)
         program = _Program(self._next_id, pid, master)
         self._next_id += 1
         self.programs[program.program_id] = program

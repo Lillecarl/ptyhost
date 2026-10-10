@@ -16,7 +16,7 @@ from typing import ClassVar
 import anyio
 import anyio.abc
 
-from ..spawn import Spawn, run_in_child
+from ..spawn import Spawn, exec_pipe, run_in_child, wait_for_exec
 from .base import Backend
 from .posix_utils import PtyReader, set_terminal_size
 
@@ -207,6 +207,7 @@ class PosixBackend(Backend):
         # the handler it inherited is the application's, and a resize of
         # the terminal the application runs in would run it in the child.
         # `run_in_child` resets it, then unblocks it.
+        read_end, exec_end = exec_pipe()
         blocked = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGWINCH})
         pid = -1
         try:
@@ -216,12 +217,24 @@ class PosixBackend(Backend):
         finally:
             if pid != 0:
                 signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
+                os.close(exec_end)
+            if pid < 0:
+                os.close(read_end)  # The fork raised.
 
         if pid == 0:
+            os.close(read_end)
             assert self.master is not None and self.slave is not None
-            run_in_child(spawn, self.master, self.slave)
+            run_in_child(spawn, self.master, self.slave, exec_end)
         elif pid > 0:
             self.pid = pid
+
+            # Running only once it has exec'd: until then the pty's
+            # foreground is this fork. Lillecarl/pymux#562. **A blocking
+            # read, not an await**: a caller builds a pane around this
+            # start, and a yield here lets a program that ends at once be
+            # reaped, and its pane removed, before the caller has placed
+            # it. An exec takes milliseconds.
+            wait_for_exec(read_end)
 
             # The pump reads what the program writes, and the reaper
             # waits for it to end. Both are tasks of the caller's

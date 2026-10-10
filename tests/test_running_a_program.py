@@ -17,6 +17,7 @@ is the point.
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import sys
 
@@ -342,5 +343,25 @@ async def test_a_character_split_across_two_reads_survives(text):
         )
         try:
             await until(said, text)
+        finally:
+            process.kill()
+
+
+async def test_a_started_program_has_already_exec_d():
+    """
+    `start` returns once the child has exec'd, so the name read off the
+    pty's foreground is the program's and never the fork's.
+    Lillecarl/pymux#562.
+    """
+    sleep = shutil.which("sleep")
+    if sleep is None:
+        pytest.skip("no sleep on the PATH")
+    async with anyio.create_task_group() as task_group:
+        backend = PosixBackend(spawn_of([sleep, "30"]))
+        process = Process(backend=backend, receive=lambda data: None)
+        process.set_size(80, 24)
+        await process.start(task_group)
+        try:
+            assert os.path.basename(backend.get_name() or "") == "sleep"
         finally:
             process.kill()
