@@ -155,6 +155,10 @@ class PosixBackend(Backend):
         "At most a page of what the program drew, decoded."
         return self._reader.read(amount)
 
+    @property
+    def more_is_waiting(self) -> bool:
+        return self._reader.filled
+
     def write_text(self, text):
         # "surrogateescape" carries a byte that is not text. Two things
         # need it. A reply with eight bit controls holds a C1 byte such

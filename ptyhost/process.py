@@ -5,6 +5,7 @@ The child process.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import ClassVar
 
@@ -16,6 +17,12 @@ from .backends import Backend
 __all__ = ["Process"]
 
 logger = logging.getLogger(__name__)
+
+#: How long a write that is still arriving may go without a redraw. A
+#: read that fills its page means more of the same write is waiting,
+#: and a redraw between the two shows the screen half updated
+#: (Lillecarl/pymux#568). A flood still draws this often.
+_REDRAW_AT_LEAST_EVERY = 1 / 60
 
 
 class Process:
@@ -53,6 +60,9 @@ class Process:
         "invalidate": "rebuilt",
         "done_callback": "rebuilt",
         "has_priority": "rebuilt",
+        "_invalidated_at": "dropped",
+        "_owed": "dropped",
+        "_task_group": "dropped",
     }
 
     def __init__(
@@ -71,6 +81,12 @@ class Process:
 
         self.suspended = False
         self._started = False
+
+        # When the last redraw was asked for, whether one is owed to a
+        # page that was held back, and the group that pays it.
+        self._invalidated_at = 0.0
+        self._owed = False
+        self._task_group: anyio.abc.TaskGroup | None = None
 
         # Create terminal interface.
         self.backend.add_input_ready_callback(self._read)
@@ -115,6 +131,7 @@ class Process:
 
         if (self.sx, self.sy) == (0, 0):
             self.set_size(120, 24)
+        self._task_group = task_group
         await self.backend.start(task_group)
 
         if self.done_callback is not None and self.backend.ready_f is not None:
@@ -192,7 +209,32 @@ class Process:
             # not stop the pane: the program would then wait
             # forever for a reply that never comes.
             logger.exception("Feeding the terminal emulator failed.")
+
+        # A page that filled its read has more of the same write behind
+        # it, so the redraw waits for the rest, up to a limit. A write
+        # that ends exactly on a page leaves nothing behind to read, so
+        # a held-back redraw is owed and paid after the same limit. With
+        # no group to pay it from, nothing is held back.
+        now = time.monotonic()
+        if (
+            self.backend.more_is_waiting
+            and self._task_group is not None
+            and now - self._invalidated_at < _REDRAW_AT_LEAST_EVERY
+        ):
+            if not self._owed:
+                self._owed = True
+                self._task_group.start_soon(self._pay_what_is_owed)
+            return
+        self._invalidated_at = now
+        self._owed = False
         self.invalidate()
+
+    async def _pay_what_is_owed(self) -> None:
+        await anyio.sleep(_REDRAW_AT_LEAST_EVERY)
+        if self._owed:
+            self._owed = False
+            self._invalidated_at = time.monotonic()
+            self.invalidate()
 
     async def _watch_end(self) -> None:
         """

@@ -82,6 +82,12 @@ class Backend(metaclass=abc.ABCMeta):
         Read terminal output and return it.
         """
 
+    #: Whether the last `read_text` stopped at its limit rather than at
+    #: the end of what was there, so more of the same write is very
+    #: likely waiting. A backend that cannot tell says False, which is
+    #: what every read meant before.
+    more_is_waiting: bool = False
+
     @abc.abstractmethod
     def write_text(self, text):
         """

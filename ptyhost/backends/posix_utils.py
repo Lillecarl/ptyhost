@@ -53,6 +53,7 @@ class PtyReader:
         "_decoder": "rebuilt",
         "decoder_state": "saved",
         "closed": "saved",
+        "filled": "dropped",
     }
 
     def __init__(self, fd: int, errors: str = "replace", encoding: str = "utf-8") -> None:
@@ -65,6 +66,9 @@ class PtyReader:
 
         #: True when there is nothing more to read, ever.
         self.closed = False
+
+        #: Whether the last read took all it asked for.
+        self.filled = False
 
     @property
     def decoder_state(self) -> tuple[bytes, int]:
@@ -83,6 +87,7 @@ class PtyReader:
         gives the event loop one long turn, and everything else waits
         for it.
         """
+        self.filled = False
         if self.closed:
             return ""
 
@@ -106,6 +111,7 @@ class PtyReader:
             self.closed = True
             return ""
 
+        self.filled = len(data) == count
         return self._decoder.decode(data)
 
 
