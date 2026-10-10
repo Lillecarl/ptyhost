@@ -62,6 +62,10 @@ rec {
       // {
         nativeBuildInputs = inputs;
         PYTERM_COULD_NOT_RUN = toString couldNotRun;
+        # The suites talk over loopback: an SSH server, a web server, a
+        # forwarded port. The darwin sandbox refuses a bind to 127.0.0.1
+        # without this, and Linux's sandbox ignores it.
+        __darwinAllowLocalNetworking = true;
       }
     ) ''
       mkdir -p "$out"
