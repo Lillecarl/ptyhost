@@ -23,7 +23,24 @@ from .posix_utils import PtyReader, set_terminal_size
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PosixBackend"]
+__all__ = ["PosixBackend", "spawn_of"]
+
+
+def spawn_of(
+    command: list[str],
+    environment: Callable[[dict[str, str]], None] | None = None,
+    directory: str | None = None,
+) -> Callable[[], Spawn]:
+    "What `start` calls for the `Spawn`: a copy of this environment, as `environment` edits it."
+    assert isinstance(command, list)
+
+    def spawn() -> Spawn:
+        env = dict(os.environ)
+        if environment is not None:
+            environment(env)
+        return Spawn(list(command), env, directory)
+
+    return spawn
 
 
 class PosixBackend(Backend):
@@ -100,15 +117,7 @@ class PosixBackend(Backend):
             leaves the program where the fork was.
         :param cell: the size of one cell in pixels. See `__init__`.
         """
-        assert isinstance(command, list)
-
-        def spawn() -> Spawn:
-            env = dict(os.environ)
-            if environment is not None:
-                environment(env)
-            return Spawn(list(command), env, directory)
-
-        return cls(spawn, cell=cell)
+        return cls(spawn_of(command, environment, directory), cell=cell)
 
     @classmethod
     def adopt(cls, master: int, slave: int | None, pid: int, cell=(0, 0)):

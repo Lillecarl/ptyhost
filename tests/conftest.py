@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import faulthandler
 import os
+import subprocess
 import sys
+import time
 
 import pytest
 
@@ -32,6 +34,23 @@ def pytest_configure(config):
     except AttributeError, ValueError, OSError:
         fileno = sys.__stderr__.fileno()
     _stacks_go_to = os.dup(fileno)
+
+
+@pytest.fixture
+def holder(tmp_path):
+    "A holder (`ptyhost.holder`) in the foreground, and the path of its socket."
+    path = str(tmp_path / "holder.sock")
+    process = subprocess.Popen([sys.executable, "-m", "ptyhost.holder", "--socket", path])
+    deadline = time.monotonic() + 5.0
+    while not os.path.exists(path):
+        assert process.poll() is None, "the holder ended at start"
+        assert time.monotonic() < deadline, "the holder never bound its socket"
+        time.sleep(0.01)
+    try:
+        yield path, process
+    finally:
+        process.kill()
+        process.wait()
 
 
 @pytest.hookimpl(hookwrapper=True)
