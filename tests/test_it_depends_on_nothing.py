@@ -119,8 +119,12 @@ _STANDARD_LIBRARY = {
     "pwd",
     "resource",
     "select",
+    # The holder's loop and the socket servers reach it on.
+    # Lillecarl/pymux#553.
+    "selectors",
     "shutil",
     "signal",
+    "socket",
     # Whether an adopted fd is a character device at all.
     "stat",
     "struct",

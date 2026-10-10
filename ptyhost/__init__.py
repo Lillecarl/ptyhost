@@ -7,6 +7,19 @@ callback, and whoever built the `Process` decides what it means.
 
 from __future__ import annotations
 
-from .process import Process
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .process import Process
 
 __all__ = ("Process",)
+
+
+def __getattr__(name: str):
+    # Not imported eagerly: `ptyhost.holder` runs on the standard
+    # library alone, and `Process` brings anyio. Lillecarl/pymux#553.
+    if name == "Process":
+        from .process import Process
+
+        return Process
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
