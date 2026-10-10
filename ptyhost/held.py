@@ -196,6 +196,7 @@ class HeldBackend(PosixBackend):
             _close_all([self.slave])
             self.slave = None
         task_group.start_soon(self._pump)
+        task_group.start_soon(self._write_the_rest)
         task_group.start_soon(self._reap)
 
     async def _pump(self) -> None:

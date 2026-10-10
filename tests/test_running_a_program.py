@@ -391,3 +391,48 @@ def test_a_child_that_cannot_take_its_pty_never_returns():
 
     _, status = os.waitpid(pid, 0)
     assert os.waitstatus_to_exitcode(status) == 1
+
+
+async def test_a_write_to_a_program_that_never_reads_does_not_wait():
+    """
+    The pty fills, and what does not fit waits beside it. A blocking
+    write here would hold the caller's whole loop until the program
+    read. Lillecarl/pymux#563.
+    """
+    sleep = shutil.which("sleep")
+    if sleep is None:
+        pytest.skip("no sleep on the PATH")
+    async with anyio.create_task_group() as task_group:
+        backend = PosixBackend(spawn_of([sleep, "30"]))
+        process = Process(backend=backend, receive=lambda data: None)
+        process.set_size(80, 24)
+        await process.start(task_group)
+        try:
+            backend.write_bytes(b"x" * (1 << 20))
+            assert backend._unwritten, "a megabyte fitted in the pty"
+        finally:
+            process.kill()
+
+
+async def test_what_did_not_fit_reaches_the_program():
+    "Every byte, in order, once the program reads. Lillecarl/pymux#563."
+    data = bytes(range(256)) * 800
+    said = []
+    async with anyio.create_task_group() as task_group:
+        process = await running(
+            "import os, tty\n"
+            "tty.setraw(0)\n"
+            "print('READY', flush=True)\n"
+            "got = bytearray()\n"
+            "while len(got) < %d:\n"
+            "    got += os.read(0, 65536)\n"
+            "print('\\r\\nGOT', got == bytes(range(256)) * 800, flush=True)\n" % (len(data),),
+            said,
+            task_group=task_group,
+        )
+        try:
+            await until(said, "READY")
+            process.backend.write_bytes(data)
+            await until(said, "GOT True")
+        finally:
+            process.kill()

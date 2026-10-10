@@ -7,7 +7,6 @@ from __future__ import annotations
 import array
 import fcntl
 import os
-import select
 import termios
 from codecs import getincrementaldecoder
 from typing import ClassVar
@@ -87,26 +86,16 @@ class PtyReader:
         if self.closed:
             return ""
 
-        # `os.read` would block, and the caller is a callback that the
-        # loop fires when the descriptor is ready. It still happens
-        # that nothing is there, so this asks first.
-        try:
-            if not select.select([self.fd], [], [], 0)[0]:
-                return ""
-        except OSError:
-            # The descriptor was closed. It became ready, a callback
-            # was scheduled, and another callback closed it before this
-            # one ran.
-            self.closed = True
-
+        # The descriptor is non-blocking, so a read with nothing there
+        # says so rather than waiting. A callback the loop fired can
+        # still find nothing: another took it first.
         try:
             data = os.read(self.fd, count)
             if data == b"":
                 self.closed = True
                 return ""
-        except InterruptedError:
-            # SIGWINCH interrupts the read.
-            data = b""
+        except BlockingIOError:
+            return ""
         except OSError:
             # **This is the end of the file on a pty.** A master whose
             # slave side is all closed answers `EIO` rather than with

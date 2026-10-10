@@ -72,6 +72,8 @@ class PosixBackend(Backend):
         "_input_ready_callbacks": "rebuilt",
         "spawn": "dropped",  # the program is running already
         "ready_f": "dropped",  # a new reaper sets a new one
+        "_unwritten": "dropped",  # keys still on their way when it paused
+        "_more_to_write": "rebuilt",
     }
 
     def __init__(self, spawn: Callable[[], Spawn] | None, cell=(0, 0), pty: tuple[int, int | None] | None = None):
@@ -83,8 +85,17 @@ class PosixBackend(Backend):
         # A pty of its own, unless the holder handed a master over. Each
         # end is `None` once it is closed.
         master, slave = pty if pty is not None else os.openpty()
+        # **Non-blocking, so nothing here waits on the program.** A
+        # program that stops reading fills the pty, and a blocking write
+        # holds the whole event loop until it reads again. What the pty
+        # does not take waits in `_unwritten`. Lillecarl/pymux#563.
+        os.set_blocking(master, False)
         self.master: int | None = master
         self.slave: int | None = slave
+
+        #: What the program has not read yet, written as it makes room.
+        self._unwritten = bytearray()
+        self._more_to_write = anyio.Event()
 
         # Master side -> attached to terminal emulator.
         self._reader = PtyReader(self.master, errors="replace")
@@ -155,15 +166,41 @@ class PosixBackend(Backend):
         self.write_bytes(text.encode("utf-8", "surrogateescape"))
 
     def write_bytes(self, data):
-        # All of it: a write may take less than it was given. An error
-        # is a program that is gone, and its pane ends on its own.
-        view = memoryview(data)
-        while view and self.master is not None:
-            try:
-                written = os.write(self.master, view)
-            except OSError:
-                return
-            view = view[written:]
+        """
+        Give the program `data`, in order. What the pty has no room for
+        now waits for `_write_the_rest`. An error is a program that is
+        gone, and its pane ends on its own.
+        """
+        if self.master is None:
+            return
+        if self._unwritten:
+            self._unwritten += data  # Behind what waits already.
+            return
+        try:
+            written = os.write(self.master, data)
+        except BlockingIOError:
+            written = 0
+        except OSError:
+            return
+        if written < len(data):
+            self._unwritten += data[written:]
+            self._more_to_write.set()
+
+    async def _write_the_rest(self) -> None:
+        "Write what `write_bytes` could not, as the program makes room."
+        while self.master is not None:
+            await self._more_to_write.wait()
+            self._more_to_write = anyio.Event()
+            while self._unwritten and self.master is not None:
+                try:
+                    await anyio.wait_writable(self.master)
+                    written = os.write(self.master, self._unwritten)
+                except BlockingIOError:
+                    continue
+                except anyio.ClosedResourceError, OSError, ValueError:
+                    self._unwritten.clear()
+                    return
+                del self._unwritten[:written]
 
     def set_size(self, width, height):
         """
@@ -231,6 +268,7 @@ class PosixBackend(Backend):
             # group, so this returns once they are started and the
             # scope owns them.
             task_group.start_soon(self._pump)
+            task_group.start_soon(self._write_the_rest)
             task_group.start_soon(self._reap)
 
     def kill(self):
@@ -256,9 +294,18 @@ class PosixBackend(Backend):
         would throw that away. Lillecarl/pymux#121.
         """
         if self.master is not None:
+            # A task parked on the fd -- the writer, waiting for the
+            # program to make room -- wakes to `ClosedResourceError`.
+            # Closed under it without this, epoll forgets the fd and the
+            # task waits for ever. Outside a loop nothing can be parked.
+            with contextlib.suppress(RuntimeError):
+                anyio.notify_closing(self.master)
             with contextlib.suppress(OSError):
                 os.close(self.master)
             self.master = None
+        # The writer waits for more; it wakes to find nothing to write to.
+        self._unwritten.clear()
+        self._more_to_write.set()
 
     async def _pump(self) -> None:
         """
