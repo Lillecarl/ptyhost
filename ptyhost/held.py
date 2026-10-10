@@ -158,7 +158,7 @@ class HeldBackend(PosixBackend):
         cell=(0, 0),
         pty: tuple[int, int | None] | None = None,
     ) -> None:
-        super().__init__(spawn, cell=cell, pty=pty)  # type: ignore[arg-type]
+        super().__init__(spawn, cell=cell, pty=pty)
         self.holding = holding
         #: The holder's name for the program, once it runs.
         self.program_id: int | None = None

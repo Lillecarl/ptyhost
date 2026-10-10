@@ -54,27 +54,29 @@ class PosixBackend(Backend):
     """
 
     #: What a hot upgrade does with each attribute, as `Process.KEEP`
-    #: says. The fds and the pid survive `execve` in the kernel; the
-    #: reader is saved for the partial UTF-8 bytes its decoder holds.
+    #: says. Each server gets its own copy of the master from the holder
+    #: (`ptyhost.held`), so its number is no other server's; the reader
+    #: is saved for the partial UTF-8 bytes its decoder holds.
     KEEP: ClassVar[dict[str, str]] = {
-        "master": "saved",
-        "slave": "saved",
+        "master": "rebuilt",
+        "slave": "dropped",  # none once the program runs
         "pid": "saved",
         "_reader": "saved",
         "cell": "rebuilt",
         "_reading": "rebuilt",  # set or not from `Process.suspended`
         "_input_ready_callbacks": "rebuilt",
-        "spawn": "dropped",  # the program is running already; `adopt` takes the rest
+        "spawn": "dropped",  # the program is running already
         "ready_f": "dropped",  # a new reaper sets a new one
     }
 
-    def __init__(self, spawn: Callable[[], Spawn] | None, cell=(0, 0), pty: tuple[int, int] | None = None):
-        #: Called in this process when `start` forks. None for an adopted program.
+    def __init__(self, spawn: Callable[[], Spawn] | None, cell=(0, 0), pty: tuple[int, int | None] | None = None):
+        #: Called in this process when `start` forks. None for a program
+        #: that runs already.
         self.spawn = spawn
         self.cell = cell
 
-        # Create pseudo terminal for this pane, unless `adopt` hands one
-        # over. Each end is `None` once it is closed.
+        # A pty of its own, unless the holder handed a master over. Each
+        # end is `None` once it is closed.
         master, slave = pty if pty is not None else os.openpty()
         self.master: int | None = master
         self.slave: int | None = slave
@@ -118,37 +120,6 @@ class PosixBackend(Backend):
         :param cell: the size of one cell in pixels. See `__init__`.
         """
         return cls(spawn_of(command, environment, directory), cell=cell)
-
-    @classmethod
-    def adopt(cls, master: int, slave: int | None, pid: int, cell=(0, 0)):
-        """
-        A backend for a program another owner started: its pty and its
-        pid, which survive `execve` in the kernel. `start` forks nothing
-        for it, and pumps and reaps it as its own. Lillecarl/pymux#399.
-
-        Raises `OSError` when the fds are not that pty. A number is only
-        what the old owner wrote down, and a wrong one would send the
-        pane's keystrokes into some other file.
-        """
-        verify_pty(master, slave)
-        backend = cls(None, cell=cell, pty=(master, slave))
-        backend.pid = pid
-        return backend
-
-    def release(self):
-        """
-        Give the pty and the child to another owner, and stop serving them.
-
-        The fds stay open and the child is never signalled: the new owner
-        holds them. The pump is woken off the fd, so it reads no byte the
-        new owner should, and a reaper still waiting finds no pid to kill
-        when its scope goes.
-        """
-        if self.master is not None:
-            anyio.notify_closing(self.master)
-        self.master = None
-        self.slave = None
-        self.pid = None
 
     def pause_reading(self):
         """
@@ -235,12 +206,6 @@ class PosixBackend(Backend):
         ends them: the pump lets the master side go, and the reaper
         kills a child the scope leaves behind rather than keeping it.
         """
-        if self.pid is not None:
-            # Adopted: the program runs already.
-            task_group.start_soon(self._pump)
-            task_group.start_soon(self._reap)
-            return
-
         assert self.spawn is not None
         spawn = self.spawn()
 
@@ -381,11 +346,9 @@ class PosixBackend(Backend):
 
     def _wait_for_child(self) -> None:
         "Wait for PID in a worker thread."
-        # A child the owner before an adoption also waited on may be
-        # reaped there first; either way it has ended.
         pid = self.pid
         if pid is None:
-            return  # released before this thread ran
+            return
         with contextlib.suppress(ChildProcessError):
             os.waitpid(pid, 0)
 
