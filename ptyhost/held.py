@@ -90,18 +90,29 @@ class Holding:
                 raise HolderError("the holder is gone")
             self._reply = None
             self._replied = anyio.Event()
-            try:
-                send(self.sock, message, fds)
-            except OSError as error:
-                raise HolderError("the holder is gone") from error
-            # **A request that stops waiting leaves its reply to come.**
-            # Taken by the next request it would answer the wrong
-            # question, and a master it carried would leak.
+            sent = False
             try:
                 with anyio.fail_after(MESSAGE_SECONDS + EXEC_SECONDS):
+                    # On a thread, as `run` reads: a holder that stops
+                    # reading fills the socket, and a send on the loop
+                    # would hold every client. Lillecarl/pymux#564.
+                    try:
+                        await anyio.to_thread.run_sync(send, self.sock, message, fds, abandon_on_cancel=True)
+                    except OSError as error:
+                        raise HolderError("the holder is gone") from error
+                    sent = True
                     await self._replied.wait()
             except BaseException:
-                if not self._replied.is_set():
+                if not sent:
+                    # Part of a message may be on the wire, and nothing
+                    # after it can be read. A holder that took this long
+                    # to read is gone in all but name.
+                    self.lost = True
+                    self.close()
+                # **A request that stops waiting leaves its reply to
+                # come.** Taken by the next request it would answer the
+                # wrong question, and a master it carried would leak.
+                elif not self._replied.is_set():
                     self._abandoned += 1
                 elif self._reply is not None:
                     _close_all(self._reply[1])

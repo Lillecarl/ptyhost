@@ -80,34 +80,58 @@ def send(sock: socket.socket, message: dict[str, Any], fds: Sequence[int] = ()) 
 
 
 def receive(sock: socket.socket) -> tuple[dict[str, Any], list[int]] | None:
-    "One message and the fds it carried, or None when the peer closed between two."
+    """
+    One message and the fds it carried, or None when the peer closed between two.
+
+    **The socket's timeout bounds the whole message, not each read.**
+    Per read, a peer that trickles a byte every few seconds holds the
+    holder's one loop for as long as it likes. A socket with no timeout
+    waits for as long as the peer is quiet, which is what a server's
+    reader wants.
+    """
+    limit = sock.gettimeout()
+    deadline = None if limit is None else time.monotonic() + limit
+
+    def wait_no_longer() -> None:
+        if deadline is not None:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError("a message took longer than %g seconds" % (limit,))
+            sock.settimeout(left)
+
     header = b""
     fds: list[int] = []
-    while len(header) < _HEADER.size:
-        data, got, _flags, _address = socket.recv_fds(sock, _HEADER.size - len(header), MAX_FDS)
-        # `recv_fds` leaves them inheritable, and every fork after would
-        # carry a pty into a program that has no business with it.
-        for fd in got:
-            os.set_inheritable(fd, False)
-        fds.extend(got)
-        if not data:
-            _close_all(fds)
-            if header:
+    try:
+        while len(header) < _HEADER.size:
+            wait_no_longer()
+            data, got, _flags, _address = socket.recv_fds(sock, _HEADER.size - len(header), MAX_FDS)
+            # `recv_fds` leaves them inheritable, and every fork after
+            # would carry a pty into a program that has no business with it.
+            for fd in got:
+                os.set_inheritable(fd, False)
+            fds.extend(got)
+            if not data:
+                if header:
+                    raise HolderError("the peer closed in the middle of a message")
+                _close_all(fds)
+                return None
+            header += data
+        (length,) = _HEADER.unpack(header)
+        if length > MAX_MESSAGE:
+            raise HolderError("a message of %d bytes" % (length,))
+        body = b""
+        while len(body) < length:
+            wait_no_longer()
+            data = sock.recv(length - len(body))
+            if not data:
                 raise HolderError("the peer closed in the middle of a message")
-            return None
-        header += data
-    (length,) = _HEADER.unpack(header)
-    if length > MAX_MESSAGE:
+            body += data
+        return json.loads(body), fds
+    except BaseException:
         _close_all(fds)
-        raise HolderError("a message of %d bytes" % (length,))
-    body = b""
-    while len(body) < length:
-        data = sock.recv(length - len(body))
-        if not data:
-            _close_all(fds)
-            raise HolderError("the peer closed in the middle of a message")
-        body += data
-    return json.loads(body), fds
+        raise
+    finally:
+        sock.settimeout(limit)
 
 
 def spawn_request(spawn: Spawn) -> dict[str, Any]:

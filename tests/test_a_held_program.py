@@ -15,6 +15,7 @@ import sys
 import anyio
 import pytest
 
+import ptyhost.held as held_module
 from ptyhost import Process
 from ptyhost.backends.posix import spawn_of
 from ptyhost.held import HeldBackend, Holding
@@ -190,3 +191,32 @@ async def test_a_reply_nobody_waits_for_answers_no_one_else():
 
         holding.close()
         theirs.close()
+
+
+async def test_a_holder_that_stops_reading_holds_no_loop(monkeypatch):
+    """
+    A send that the holder never reads fills the socket. It waits on a
+    thread, so the loop turns meanwhile, and the request gives up at
+    its deadline with the connection lost. Lillecarl/pymux#564.
+    """
+    monkeypatch.setattr(held_module, "MESSAGE_SECONDS", 0.3)
+    monkeypatch.setattr(held_module, "EXEC_SECONDS", 0.0)
+    ours, theirs = socket.socketpair()
+    holding = Holding(ours)
+    turns = 0
+
+    async def turning() -> None:
+        nonlocal turns
+        while True:
+            turns += 1
+            await anyio.sleep(0.01)
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(holding.run)
+        task_group.start_soon(turning)
+        with pytest.raises(TimeoutError):
+            await holding.request({"op": "programs", "padding": "x" * (8 << 20)})
+        assert turns > 10, "the loop stood still while the send waited"
+        assert holding.lost
+        task_group.cancel_scope.cancel()
+    theirs.close()
