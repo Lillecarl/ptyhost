@@ -26,6 +26,7 @@ import pytest
 
 from ptyhost import Process
 from ptyhost.backends.posix import PosixBackend, spawn_of
+from ptyhost.spawn import Spawn, exec_pipe, run_in_child, wait_for_exec
 
 #: How long a test may wait for a program to say something, in seconds.
 #: Every one of these is a fork and a write, so this is generous and a
@@ -365,3 +366,28 @@ async def test_a_started_program_has_already_exec_d():
             assert os.path.basename(backend.get_name() or "") == "sleep"
         finally:
             process.kill()
+
+
+def test_a_child_that_cannot_take_its_pty_never_returns():
+    """
+    A failure before the exec ends the child where it is. Returned into
+    its caller, a child of the holder would run a second holder, and
+    one of the server a second server. A pipe is no terminal, so
+    taking it as the controlling one fails.
+    """
+    read_end, exec_end = exec_pipe()
+    master, slave = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        os.close(read_end)
+        try:
+            run_in_child(Spawn(["true"], dict(os.environ)), master, slave, exec_end)
+        finally:
+            os._exit(99)  # Reached only by a child that came back.
+    os.close(exec_end)
+    os.close(master)
+    os.close(slave)
+    wait_for_exec(read_end)
+
+    _, status = os.waitpid(pid, 0)
+    assert os.waitstatus_to_exitcode(status) == 1

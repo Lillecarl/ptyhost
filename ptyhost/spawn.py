@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import resource
+import selectors
 import signal
 import time
 import traceback
@@ -48,10 +49,21 @@ def exec_pipe() -> tuple[int, int]:
     return os.pipe()
 
 
-def wait_for_exec(read_end: int) -> None:
-    "Block until the child that holds the other end has exec'd or gone."
+#: How long a spawn waits for its child's exec. An exec takes
+#: milliseconds; this bounds a child stuck before it -- a `chdir` into a
+#: hung mount -- so the holder's one loop does not stop with it.
+EXEC_SECONDS = 5.0
+
+
+def wait_for_exec(read_end: int, seconds: float = EXEC_SECONDS) -> None:
+    "Block until the child that holds the other end has exec'd or gone, or `seconds` pass."
+    # A selector and not `select.select`, which refuses an fd past 1024,
+    # and a holder of many panes holds that many.
     try:
-        os.read(read_end, 1)
+        with selectors.DefaultSelector() as waiting:
+            waiting.register(read_end, selectors.EVENT_READ)
+            if waiting.select(seconds):
+                os.read(read_end, 1)
     finally:
         os.close(read_end)
 
@@ -62,37 +74,45 @@ def run_in_child(spawn: Spawn, master: int, slave: int, exec_end: int) -> NoRetu
 
     `exec_end` is the write end of an `exec_pipe`, closed by the exec.
     """
-    # The parent's handler would run here until the exec replaces it. A
-    # parent that blocked SIGWINCH across the fork gets it back after.
-    signal.signal(signal.SIGWINCH, signal.SIG_DFL)
-    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGWINCH})
-    os.close(master)
-
-    pty_make_controlling_tty(slave)
-    os.dup2(slave, 0)
-    os.dup2(slave, 1)
-    os.dup2(slave, 2)
-
+    # **Nothing raised here may leave this function.** The caller's
+    # stack is the holder's loop or the server's, and a child that
+    # returns into it runs a second copy of that process.
     try:
-        _close_file_descriptors(keep=exec_end)
-        if spawn.directory is not None:
+        try:
+            # The parent's handler would run here until the exec
+            # replaces it. A parent that blocked SIGWINCH across the
+            # fork gets it back after.
+            signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGWINCH})
+            os.close(master)
+
+            pty_make_controlling_tty(slave)
+            os.dup2(slave, 0)
+            os.dup2(slave, 1)
+            os.dup2(slave, 2)
+        except BaseException:
+            os._exit(1)  # Not on the pty yet, so nobody would read why.
+
+        try:
+            _close_file_descriptors(keep=exec_end)
+            if spawn.directory is not None:
+                with contextlib.suppress(OSError):
+                    os.chdir(spawn.directory)
+            os.execvpe(spawn.command[0], spawn.command, spawn.environment)
+        except BaseException:
+            # Before the traceback and the wait below: the parent waits
+            # on this end, and five seconds of it would stall a spawn.
             with contextlib.suppress(OSError):
-                os.chdir(spawn.directory)
-        os.execvpe(spawn.command[0], spawn.command, spawn.environment)
-    except Exception:
-        # Before the traceback and the wait below: the parent waits on
-        # this end, and five seconds of it would stall every spawn.
-        with contextlib.suppress(OSError):
-            os.close(exec_end)
-        traceback.print_exc()
+                os.close(exec_end)
+            traceback.print_exc()
 
-        # The traceback went to the pty, which is the pane. Exiting
-        # now would close the pane with it and the person would see
-        # nothing. Five seconds is long enough to read that
-        # something went wrong and to copy the first line of it.
-        time.sleep(5)
-
-    os._exit(1)
+            # The traceback went to the pty, which is the pane. Exiting
+            # now would close the pane with it and the person would see
+            # nothing. Five seconds is long enough to read that
+            # something went wrong and to copy the first line of it.
+            time.sleep(5)
+    finally:
+        os._exit(1)
 
 
 def _close_file_descriptors(keep: int) -> None:
