@@ -13,7 +13,8 @@ import sys
 import time
 import traceback
 import warnings
-from typing import ClassVar
+from collections.abc import Callable
+from typing import ClassVar, NamedTuple
 
 import anyio
 import anyio.abc
@@ -23,7 +24,22 @@ from .posix_utils import PtyReader, pty_make_controlling_tty, set_terminal_size
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PosixBackend"]
+__all__ = ["PosixBackend", "Spawn"]
+
+
+class Spawn(NamedTuple):
+    """
+    What a child needs to start, as data. The child runs none of its
+    caller's Python between the fork and the exec, so a process that
+    holds the ptys can fork from one of these. Lillecarl/pymux#553.
+
+    `command[0]` is looked up on the PATH of `environment`, not on the
+    PATH of whoever forks.
+    """
+
+    command: list[str]
+    environment: dict[str, str]
+    directory: str | None = None
 
 
 class PosixBackend(Backend):
@@ -47,12 +63,13 @@ class PosixBackend(Backend):
         "cell": "rebuilt",
         "_reading": "rebuilt",  # set or not from `Process.suspended`
         "_input_ready_callbacks": "rebuilt",
-        "exec_func": "dropped",  # the program is running already; `adopt` takes the rest
+        "spawn": "dropped",  # the program is running already; `adopt` takes the rest
         "ready_f": "dropped",  # a new reaper sets a new one
     }
 
-    def __init__(self, exec_func, cell=(0, 0), pty: tuple[int, int] | None = None):
-        self.exec_func = exec_func
+    def __init__(self, spawn: Callable[[], Spawn] | None, cell=(0, 0), pty: tuple[int, int] | None = None):
+        #: Called in this process when `start` forks. None for an adopted program.
+        self.spawn = spawn
         self.cell = cell
 
         # Create pseudo terminal for this pane, unless `adopt` hands one
@@ -82,28 +99,32 @@ class PosixBackend(Backend):
         self._input_ready_callbacks.append(callback)
 
     @classmethod
-    def from_command(cls, command, before_exec_func=None, cell=(0, 0)):
+    def from_command(
+        cls,
+        command: list[str],
+        environment: Callable[[dict[str, str]], None] | None = None,
+        directory: str | None = None,
+        cell=(0, 0),
+    ):
         """
-        Create Process from command,
-        e.g. command=['python', '-c', 'print("test")']
+        A backend that starts `command`, e.g. `['python', '-c', 'print("test")']`.
 
-        :param before_exec_func: Function that is called before `exec` in the
-            process fork.
+        :param environment: edits a copy of this process's environment
+            into the program's. It runs here, when `start` forks, and
+            not in the child.
+        :param directory: where the program starts. One that is gone
+            leaves the program where the fork was.
         :param cell: the size of one cell in pixels. See `__init__`.
         """
         assert isinstance(command, list)
-        assert before_exec_func is None or callable(before_exec_func)
 
-        def execv():
-            if before_exec_func:
-                before_exec_func()
+        def spawn() -> Spawn:
+            env = dict(os.environ)
+            if environment is not None:
+                environment(env)
+            return Spawn(list(command), env, directory)
 
-            for p in os.environ["PATH"].split(":"):
-                path = os.path.join(p, command[0])
-                if os.path.exists(path) and os.access(path, os.X_OK):
-                    os.execv(path, command)
-
-        return cls(execv, cell=cell)
+        return cls(spawn, cell=cell)
 
     @classmethod
     def adopt(cls, master: int, slave: int | None, pid: int, cell=(0, 0)):
@@ -117,7 +138,7 @@ class PosixBackend(Backend):
         pane's keystrokes into some other file.
         """
         verify_pty(master, slave)
-        backend = cls(None, cell=cell, pty=(master, slave))  # type: ignore[arg-type]
+        backend = cls(None, cell=cell, pty=(master, slave))
         backend.pid = pid
         return backend
 
@@ -227,6 +248,9 @@ class PosixBackend(Backend):
             task_group.start_soon(self._reap)
             return
 
+        assert self.spawn is not None
+        spawn = self.spawn()
+
         # CPython warns about a fork in a threaded process. The child
         # here execs at once, and between the fork and the exec it
         # touches only os-level calls; a pty child has no posix_spawn
@@ -237,7 +261,7 @@ class PosixBackend(Backend):
             pid = os.fork()
 
         if pid == 0:
-            self._in_child()
+            self._in_child(spawn)
         elif pid > 0:
             # We wait a very short while, to be sure the child had the time to
             # call _exec. (Otherwise, we are still sharing signal handlers and
@@ -273,7 +297,7 @@ class PosixBackend(Backend):
             with contextlib.suppress(OSError):
                 os.kill(self.pid, signal)
 
-    def _in_child(self):
+    def _in_child(self, spawn: Spawn):
         "Will be executed in the forked child."
         os.close(self.master)
 
@@ -292,7 +316,10 @@ class PosixBackend(Backend):
         # Execute in child.
         try:
             self._close_file_descriptors()
-            self.exec_func()
+            if spawn.directory is not None:
+                with contextlib.suppress(OSError):
+                    os.chdir(spawn.directory)
+            os.execvpe(spawn.command[0], spawn.command, spawn.environment)
         except Exception:
             traceback.print_exc()
 
@@ -303,7 +330,6 @@ class PosixBackend(Backend):
             time.sleep(5)
 
             os._exit(1)
-        os._exit(0)
 
     def _close_file_descriptors(self):
         # Do not allow child to inherit open file descriptors from parent.

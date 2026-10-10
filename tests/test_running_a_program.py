@@ -16,6 +16,7 @@ is the point.
 
 from __future__ import annotations
 
+import os
 import sys
 
 import anyio
@@ -270,6 +271,35 @@ async def test_several_programs_that_nobody_watches_are_still_read():
         finally:
             for process in programs:
                 process.kill()
+
+
+async def test_a_program_starts_in_the_environment_and_directory_it_was_given(tmp_path):
+    """
+    The edit runs here and not in the child, so this process keeps its
+    own environment, and the program is found on the PATH it was given.
+    Lillecarl/pymux#553.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "only-here").symlink_to(sys.executable)
+    program = "import os, time; print('%s in %s' % (os.environ['GIVEN'], os.getcwd()), flush=True); time.sleep(30)"
+
+    def environment(env: dict[str, str]) -> None:
+        env["GIVEN"] = "given"
+        env["PATH"] = str(bin_dir)
+
+    before = dict(os.environ)
+    said: list[str] = []
+    backend = PosixBackend.from_command(["only-here", "-c", program], environment, str(tmp_path))
+    async with anyio.create_task_group() as task_group:
+        process = Process(backend=backend, receive=said.append)
+        process.set_size(400, 24)
+        await process.start(task_group)
+        try:
+            await until(said, "given in %s" % (tmp_path,))
+            assert dict(os.environ) == before
+        finally:
+            process.kill()
 
 
 @pytest.mark.parametrize("text", ["ä", "日本", "🙂"])
