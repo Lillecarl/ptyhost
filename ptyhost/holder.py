@@ -48,6 +48,13 @@ VERSION = 1
 #: How long a holder with no program and no server waits before it exits.
 IDLE_SECONDS = 5.0
 
+#: How long programs wait for a server when none is connected. A server
+#: that upgrades or restarts after a crash comes back well within it; a
+#: crash that nothing restarts ends the programs instead of leaving them
+#: running with no way to reach them. Then the holder hangs up every pty
+#: and exits.
+ORPHAN_SECONDS = 30.0
+
 #: How long one message may take. A server that stops reading in the
 #: middle of one is dropped rather than left to stall every other.
 MESSAGE_SECONDS = 5.0
@@ -145,7 +152,7 @@ class Holder:
         self.selector.register(self._woken, selectors.EVENT_READ)
 
     def run(self) -> None:
-        idle_since = time.monotonic()
+        idle_since = alone_since = time.monotonic()
         while True:
             for key, _ in self.selector.select(IDLE_SECONDS / 4):
                 if key.fileobj is self.listener:
@@ -157,10 +164,23 @@ class Holder:
                     self._serve(key.fileobj)  # type: ignore[arg-type]
             self._reap()
 
-            if self.programs or self.servers:
-                idle_since = time.monotonic()
-            elif time.monotonic() - idle_since >= IDLE_SECONDS:
+            now = time.monotonic()
+            if self.servers:
+                idle_since = alone_since = now
+            elif self.programs:
+                idle_since = now
+                if now - alone_since >= ORPHAN_SECONDS:
+                    self._hang_up()
+                    return
+            elif now - idle_since >= IDLE_SECONDS:
                 return
+
+    def _hang_up(self) -> None:
+        "Close every master. The kernel hangs up each program's terminal."
+        for program in self.programs.values():
+            if program.master is not None:
+                os.close(program.master)
+                program.master = None
 
     def _accept(self) -> None:
         with contextlib.suppress(BlockingIOError):

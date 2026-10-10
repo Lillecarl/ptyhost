@@ -197,6 +197,39 @@ def test_an_idle_holder_ends(tmp_path):
         process.kill()
 
 
+def test_programs_no_server_comes_back_for_are_hung_up(tmp_path):
+    path = str(tmp_path / "holder.sock")
+    shortly = "import sys, ptyhost.holder as h; h.ORPHAN_SECONDS = 0.3; sys.exit(h.main(sys.argv[1:]))"
+    process = subprocess.Popen([sys.executable, "-c", shortly, "--socket", path])
+    try:
+        deadline = time.monotonic() + TIMEOUT
+        while not os.path.exists(path):
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        client = HolderClient.connect(path)
+        program, master = echo(client)
+        until(master, "READY")
+        client.close()
+        os.close(master)
+
+        assert process.wait(TIMEOUT) == 0
+        deadline = time.monotonic() + TIMEOUT
+        while _alive(program["pid"]):
+            assert time.monotonic() < deadline, "the program outlived its holder"
+            time.sleep(0.01)
+    finally:
+        process.kill()
+
+
+def _alive(pid: int) -> bool:
+    "Whether `pid` runs, and is not a zombie that its new parent has yet to reap."
+    try:
+        with open("/proc/%d/stat" % (pid,)) as stat:
+            return stat.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
+
+
 def test_a_detached_holder_is_reachable_once_its_starter_returns(tmp_path):
     path = str(tmp_path / "holder.sock")
     started = subprocess.Popen([sys.executable, "-m", "ptyhost.holder", "--socket", path, "--detach"])
