@@ -451,3 +451,23 @@ async def test_what_did_not_fit_reaches_the_program():
             await until(said, "GOT True")
         finally:
             process.kill()
+
+
+async def test_a_running_program_says_where_it_is(tmp_path):
+    """
+    The directory a pane's program stands in, which `#{pane_current_path}`
+    and `split-window -c` read. /proc on Linux, `proc_pidinfo` on macOS.
+    Lillecarl/pymux#565.
+    """
+    sleep = shutil.which("sleep")
+    if sleep is None:
+        pytest.skip("no sleep on the PATH")
+    async with anyio.create_task_group() as task_group:
+        backend = PosixBackend(spawn_of([sleep, "30"], directory=str(tmp_path)))
+        process = Process(backend=backend, receive=lambda data: None)
+        process.set_size(80, 24)
+        await process.start(task_group)
+        try:
+            assert backend.get_cwd() == os.path.realpath(tmp_path)
+        finally:
+            process.kill()

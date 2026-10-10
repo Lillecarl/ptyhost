@@ -457,3 +457,7 @@ def get_cwd_for_pid(pid):
             return os.readlink("/proc/%s/cwd" % pid)
         except OSError:
             pass
+    elif sys.platform == "darwin":
+        from .darwin import get_proc_cwd
+
+        return get_proc_cwd(pid)

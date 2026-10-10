@@ -4,9 +4,10 @@ Tools for Darwin. (Mac OS X.)
 
 from __future__ import annotations
 
-from ctypes import c_ubyte, c_uint, c_ulong, cdll, pointer
+import os
+from ctypes import c_int, c_ubyte, c_uint, c_uint64, c_ulong, c_void_p, cdll, pointer
 
-__all__ = ["get_proc_info", "get_proc_name"]
+__all__ = ["get_proc_cwd", "get_proc_info", "get_proc_name"]
 
 # Current Values as of El Capitan
 
@@ -87,3 +88,28 @@ def get_proc_name(pid):
     p_comm = p_comm_raw.split("\0", 1)[0]
 
     return p_comm
+
+
+# /usr/include/sys/proc_info.h: `proc_pidinfo` fills a
+# `struct proc_vnodepathinfo` for this flavor, the current directory
+# first. Each half is a `struct vnode_info` (152 bytes) and then the
+# path, MAXPATHLEN bytes long.
+PROC_PIDVNODEPATHINFO = 9
+VNODE_INFO_SIZE = 152
+MAXPATHLEN = 1024
+
+
+def get_proc_cwd(pid):
+    """
+    The working directory of a process, or None. macOS keeps it behind
+    `proc_pidinfo`, where Linux has /proc/<pid>/cwd.
+    """
+    _init()
+    size = 2 * (VNODE_INFO_SIZE + MAXPATHLEN)
+    info = (c_ubyte * size)()
+    LIBC.proc_pidinfo.argtypes = [c_int, c_int, c_uint64, c_void_p, c_int]
+    got = LIBC.proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, info, size)
+    if got < size:
+        return None
+    path = bytes(info[VNODE_INFO_SIZE : VNODE_INFO_SIZE + MAXPATHLEN]).split(b"\0", 1)[0]
+    return os.fsdecode(path) or None
