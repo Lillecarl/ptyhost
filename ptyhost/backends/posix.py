@@ -325,6 +325,10 @@ class PosixBackend(Backend):
                     await anyio.wait_readable(self.master)
                 except anyio.ClosedResourceError, OSError, ValueError:
                     break
+                # A pause that came while it waited holds too: an upgrade
+                # pauses here, and a byte read now is lost to the next server.
+                if not self._reading.is_set():
+                    continue
                 for callback in self._input_ready_callbacks:
                     await callback()
         finally:
