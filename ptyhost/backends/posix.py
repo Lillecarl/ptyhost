@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import sys
+import time
 import warnings
 from collections.abc import Callable
 from typing import ClassVar
@@ -20,6 +21,10 @@ from .posix_utils import PtyReader, set_terminal_size
 logger = logging.getLogger(__name__)
 
 __all__ = ["PosixBackend", "spawn_of"]
+
+#: How long the name of the foreground program is kept, in seconds, while
+#: the foreground process group stays the same.
+_NAME_KEPT_FOR = 0.25
 
 
 def spawn_of(
@@ -74,6 +79,7 @@ class PosixBackend(Backend):
         "ready_f": "dropped",  # a new reaper sets a new one
         "_unwritten": "dropped",  # keys still on their way when it paused
         "_more_to_write": "rebuilt",
+        "_name_kept": "dropped",
     }
 
     def __init__(self, spawn: Callable[[], Spawn] | None, cell=(0, 0), pty: tuple[int, int | None] | None = None):
@@ -95,6 +101,9 @@ class PosixBackend(Backend):
 
         #: What the program has not read yet, written as it makes room.
         self._unwritten = bytearray()
+
+        #: The foreground process group, its name, and when it was read.
+        self._name_kept: tuple[int, str | None, float] | None = None
         self._more_to_write = anyio.Event()
 
         # Master side -> attached to terminal emulator.
@@ -393,7 +402,14 @@ class PosixBackend(Backend):
             os.waitpid(pid, 0)
 
     def get_name(self):
-        "The name of the program in the foreground of this pty."
+        """
+        The name of the program in the foreground of this pty.
+
+        A title bar asks on every frame. A new program in the foreground
+        is a new process group and is read at once; the same group keeps
+        its name for `_NAME_KEPT_FOR` seconds, which is how long an
+        `exec` inside it may take to show.
+        """
         if self.master is None:
             return "<unknown>"
         try:
@@ -401,7 +417,13 @@ class PosixBackend(Backend):
         except OSError:
             # See: https://github.com/jonathanslenders/pymux/issues/46
             return None
-        return _name_of_pid(pgrp)
+        now = time.monotonic()
+        kept = self._name_kept
+        if kept is not None and kept[0] == pgrp and now - kept[2] < _NAME_KEPT_FOR:
+            return kept[1]
+        name = _name_of_pid(pgrp)
+        self._name_kept = (pgrp, name, now)
+        return name
 
     def get_cwd(self):
         if self.pid:
