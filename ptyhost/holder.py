@@ -269,13 +269,17 @@ class Holder:
         if len(fds) != 2:
             raise HolderError("a spawn carries the master and the slave of a pty, not %d fds" % (len(fds),))
         spawn = Spawn(list(message["command"]), dict(message["environment"]), message.get("directory"))
-        master, slave = (os.dup(fd) for fd in fds)
-        read_end, exec_end = exec_pipe()
+        # Each fd as it is made, so a failure half way (EMFILE) leaks none.
+        made: list[int] = []
         try:
+            for fd in fds:
+                made.append(os.dup(fd))
+            made.extend(exec_pipe())
             pid = os.fork()
         except BaseException:
-            _close_all((master, slave, read_end, exec_end))
+            _close_all(made)
             raise
+        master, slave, read_end, exec_end = made
         if pid == 0:
             os.close(read_end)
             run_in_child(spawn, master, slave, exec_end)
