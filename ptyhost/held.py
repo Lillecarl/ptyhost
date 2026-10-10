@@ -27,7 +27,7 @@ from .backends.posix import PosixBackend, verify_pty
 from .holder import MESSAGE_SECONDS, HolderClient, HolderError, receive, send, spawn_request
 from .spawn import Spawn
 
-__all__ = ("HeldBackend", "Holding")
+__all__ = ("HeldBackend", "Holding", "backend_of")
 
 
 class Holding:
@@ -214,3 +214,10 @@ class HeldBackend(PosixBackend):
                     await self.holding.release(self.program_id)
         finally:
             self.ready_f.set()
+
+
+def backend_of(spawn: Callable[[], Spawn], cell=(0, 0), holding: Holding | None = None) -> PosixBackend:
+    "A pty for `spawn`: forked by the holder when there is one, and here when there is none."
+    if holding is not None:
+        return HeldBackend(holding, spawn, cell=cell)
+    return PosixBackend(spawn, cell=cell)

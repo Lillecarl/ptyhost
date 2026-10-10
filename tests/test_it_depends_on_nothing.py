@@ -23,10 +23,10 @@ import ptyhost
 PACKAGE = Path(ptyhost.__file__).parent
 
 #: Everything outside the standard library. A pty is the operating
-#: system, `yawinpty` is the pty of Windows, asyncssh is the pty of a
-#: remote machine, and anyio is how this package waits -- and each is
-#: the only thing of its kind this package cannot write itself.
-MAY_IMPORT_OUTSIDE = {"yawinpty", "asyncssh", "anyio"}
+#: system, asyncssh is the pty of a remote machine, and anyio is how
+#: this package waits -- and each is the only thing of its kind this
+#: package cannot write itself.
+MAY_IMPORT_OUTSIDE = {"asyncssh", "anyio"}
 
 #: The parsers and the toolkits. A widget brings its own, and this
 #: package is what the widgets have in common.
@@ -79,8 +79,8 @@ def test_no_module_imports_a_parser_or_a_toolkit(path):
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
 def test_no_module_imports_a_third_party_package(path):
     """
-    Beyond the three that carry a pty or a wait this package cannot
-    open itself.
+    Beyond the two that carry a pty or a wait this package cannot open
+    itself.
 
     A dependency here is a dependency of every widget that draws a
     terminal, so each one has to be argued for rather than added.

@@ -23,7 +23,7 @@ import anyio
 import pytest
 
 from ptyhost import Process
-from ptyhost.backends.posix import PosixBackend
+from ptyhost.backends.posix import PosixBackend, spawn_of
 
 #: How long a test may wait for a program to say something, in seconds.
 #: Every one of these is a fork and a write, so this is generous and a
@@ -52,7 +52,7 @@ async def until(said, text: str) -> None:
 async def running(program: str, said, ended=None, linger: bool = True, priority=None, *, task_group):
     "A `Process` on a python program, sized and started, watched by the group."
     command = [sys.executable, "-c", program + (LINGER if linger else "")]
-    backend = PosixBackend.from_command(command)
+    backend = PosixBackend(spawn_of(command))
     process = Process(
         backend=backend,
         receive=said.append,
@@ -290,7 +290,7 @@ async def test_a_program_starts_in_the_environment_and_directory_it_was_given(tm
 
     before = dict(os.environ)
     said: list[str] = []
-    backend = PosixBackend.from_command(["only-here", "-c", program], environment, str(tmp_path))
+    backend = PosixBackend(spawn_of(["only-here", "-c", program], environment, str(tmp_path)))
     async with anyio.create_task_group() as task_group:
         process = Process(backend=backend, receive=said.append)
         process.set_size(400, 24)

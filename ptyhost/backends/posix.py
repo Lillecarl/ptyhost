@@ -31,7 +31,16 @@ def spawn_of(
     environment: Callable[[dict[str, str]], None] | None = None,
     directory: str | None = None,
 ) -> Callable[[], Spawn]:
-    "What `start` calls for the `Spawn`: a copy of this environment, as `environment` edits it."
+    """
+    What `start` calls for the `Spawn` of `command`, e.g.
+    `['python', '-c', 'print("test")']`.
+
+    :param environment: edits a copy of this process's environment into
+        the program's. It runs here, when `start` forks, and not in the
+        child.
+    :param directory: where the program starts. One that is gone leaves
+        the program where the fork was.
+    """
     assert isinstance(command, list)
 
     def spawn() -> Spawn:
@@ -101,26 +110,6 @@ class PosixBackend(Backend):
     def add_input_ready_callback(self, callback):
         self._input_ready_callbacks.append(callback)
 
-    @classmethod
-    def from_command(
-        cls,
-        command: list[str],
-        environment: Callable[[dict[str, str]], None] | None = None,
-        directory: str | None = None,
-        cell=(0, 0),
-    ):
-        """
-        A backend that starts `command`, e.g. `['python', '-c', 'print("test")']`.
-
-        :param environment: edits a copy of this process's environment
-            into the program's. It runs here, when `start` forks, and
-            not in the child.
-        :param directory: where the program starts. One that is gone
-            leaves the program where the fork was.
-        :param cell: the size of one cell in pixels. See `__init__`.
-        """
-        return cls(spawn_of(command, environment, directory), cell=cell)
-
     def pause_reading(self):
         """
         Stop handing the program's output over, without losing any.
@@ -157,7 +146,7 @@ class PosixBackend(Backend):
         Nothing reads after a reap: `_waitpid` takes the reader away
         and closes the pty. So the reader's flag stayed false for the
         life of the server, and a pane whose program had exited read
-        as alive. `Win32Backend` already answers with `ready_f`.
+        as alive.
         Lillecarl/pymux#120.
         """
         return self._reader.closed
@@ -373,7 +362,7 @@ class PosixBackend(Backend):
             return get_cwd_for_pid(self.pid)
 
 
-if sys.platform in ("linux", "linux2", "cygwin"):
+if sys.platform.startswith("linux"):
 
     def get_name_for_fd(fd):
         """
@@ -451,7 +440,7 @@ def get_cwd_for_pid(pid):
     """
     Return the current working directory for a given process ID.
     """
-    if sys.platform in ("linux", "linux2", "cygwin"):
+    if sys.platform.startswith("linux"):
         try:
             return os.readlink("/proc/%s/cwd" % pid)
         except OSError:
