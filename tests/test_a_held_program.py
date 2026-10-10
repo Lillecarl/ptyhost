@@ -11,10 +11,12 @@ import os
 import sys
 
 import anyio
+import pytest
 
 from ptyhost import Process
 from ptyhost.backends.posix import spawn_of
 from ptyhost.held import HeldBackend, Holding
+from ptyhost.holder import HolderError
 
 #: How long a test may wait for a program or the holder, in seconds.
 TIMEOUT = 5.0
@@ -100,6 +102,19 @@ async def test_a_held_program_outlives_the_scope_that_started_it(holder):
         await second.quit()
         task_group.cancel_scope.cancel()
     second.close()
+
+
+async def test_a_request_to_a_holder_that_went_says_so(holder):
+    "Any request: a reaper releases after the holder may have gone."
+    path, holder_process = holder
+    holding = await Holding.connect(path)
+    holder_process.kill()
+    holder_process.wait()
+
+    with pytest.raises(HolderError, match="gone"):
+        for _ in range(3):  # the first send may still fit in the buffer
+            await holding.release(1)
+    holding.close()
 
 
 async def test_a_program_outlives_its_holder_and_ends_with_its_file(holder):

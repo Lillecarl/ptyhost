@@ -85,7 +85,10 @@ class Holding:
                 raise HolderError("the holder is gone")
             self._reply = None
             self._replied = anyio.Event()
-            send(self.sock, message, fds)
+            try:
+                send(self.sock, message, fds)
+            except OSError as error:
+                raise HolderError("the holder is gone") from error
             with anyio.fail_after(MESSAGE_SECONDS):
                 await self._replied.wait()
             if self._reply is None:
