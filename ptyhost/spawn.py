@@ -37,10 +37,11 @@ class Spawn(NamedTuple):
 
 def run_in_child(spawn: Spawn, master: int, slave: int) -> NoReturn:
     "The child's half of a fork: make `slave` its terminal, and exec."
-    os.close(master)
-
-    # The parent's handler would run here until the exec replaces it.
+    # The parent's handler would run here until the exec replaces it. A
+    # parent that blocked SIGWINCH across the fork gets it back after.
     signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGWINCH})
+    os.close(master)
 
     pty_make_controlling_tty(slave)
     os.dup2(slave, 0)

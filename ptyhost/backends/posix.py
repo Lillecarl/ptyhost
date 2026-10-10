@@ -9,7 +9,6 @@ import signal
 import stat
 import struct
 import sys
-import time
 import warnings
 from collections.abc import Callable
 from typing import ClassVar
@@ -203,26 +202,25 @@ class PosixBackend(Backend):
         # touches only os-level calls; a pty child has no posix_spawn
         # route, because it needs setsid and its own controlling
         # terminal.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            pid = os.fork()
+        #
+        # SIGWINCH is blocked across the fork: until the child resets it,
+        # the handler it inherited is the application's, and a resize of
+        # the terminal the application runs in would run it in the child.
+        # `run_in_child` resets it, then unblocks it.
+        blocked = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGWINCH})
+        pid = -1
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                pid = os.fork()
+        finally:
+            if pid != 0:
+                signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
 
         if pid == 0:
             assert self.master is not None and self.slave is not None
             run_in_child(spawn, self.master, self.slave)
         elif pid > 0:
-            # We wait a very short while, to be sure the child had the time to
-            # call _exec. (Otherwise, we are still sharing signal handlers and
-            # FDs.) Resizing the pty, when the child is still in our Python
-            # code and has the signal handler from prompt_toolkit, but closed
-            # the 'fd' for 'call_from_executor', will cause OSError.
-            #
-            # **No reason was found for a tenth of a second.** Nothing
-            # measured it, and a sleep cannot close this race at all:
-            # it only makes the window unlikely. Whatever the right fix
-            # is, it is a handshake and not a longer number here.
-            time.sleep(0.1)
-
             self.pid = pid
 
             # The pump reads what the program writes, and the reaper

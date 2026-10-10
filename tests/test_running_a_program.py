@@ -17,6 +17,7 @@ is the point.
 from __future__ import annotations
 
 import os
+import signal
 import sys
 
 import anyio
@@ -298,6 +299,23 @@ async def test_a_program_starts_in_the_environment_and_directory_it_was_given(tm
         try:
             await until(said, "given in %s" % (tmp_path,))
             assert dict(os.environ) == before
+        finally:
+            process.kill()
+
+
+async def test_a_program_gets_sigwinch_and_this_process_keeps_its_mask():
+    "The fork blocks SIGWINCH until the child has reset it; neither side stays blocked."
+    program = (
+        "blocked = int(next(l for l in open('/proc/self/status') if l.startswith('SigBlk:')).split()[1], 16)\n"
+        "print('WINCH BLOCKED' if blocked & (1 << (%d - 1)) else 'WINCH FREE', flush=True)" % signal.SIGWINCH
+    )
+    said: list[str] = []
+    async with anyio.create_task_group() as task_group:
+        process = await running(program, said, task_group=task_group)
+        try:
+            await until(said, "WINCH")
+            assert "WINCH FREE" in "".join(said)
+            assert signal.SIGWINCH not in signal.pthread_sigmask(signal.SIG_BLOCK, [])
         finally:
             process.kill()
 
