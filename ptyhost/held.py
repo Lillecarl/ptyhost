@@ -15,7 +15,6 @@ its program ended, or when the server asks the holder to quit.
 from __future__ import annotations
 
 import contextlib
-import os
 import socket
 from collections.abc import Callable, Sequence
 from typing import Any, ClassVar
@@ -24,7 +23,7 @@ import anyio
 import anyio.abc
 
 from .backends.posix import PosixBackend, verify_pty
-from .holder import MESSAGE_SECONDS, HolderClient, HolderError, receive, send, spawn_request
+from .holder import MESSAGE_SECONDS, HolderClient, HolderError, _close_all, receive, send, spawn_request
 from .spawn import EXEC_SECONDS, Spawn
 
 __all__ = ("HeldBackend", "Holding", "backend_of")
@@ -146,12 +145,6 @@ class Holding:
         with contextlib.suppress(OSError):
             self.sock.shutdown(socket.SHUT_RDWR)
         self.sock.close()
-
-
-def _close_all(fds: Sequence[int]) -> None:
-    for fd in fds:
-        with contextlib.suppress(OSError):
-            os.close(fd)
 
 
 class HeldBackend(PosixBackend):

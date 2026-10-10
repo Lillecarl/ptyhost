@@ -133,16 +133,9 @@ class PosixBackend(Backend):
         """
         Is there nothing more to read from this program?
 
-        **Two things say so, and only one of them used to.** A read
-        that gives back nothing sets the flag on the reader, and that
-        is the end of the pty while the child may still be alive.
-        Reaping the child is the other, and `_waitpid` marks it by
-        resolving `ready_f`.
-
-        Nothing reads after a reap: `_waitpid` takes the reader away
-        and closes the pty. So the reader's flag stayed false for the
-        life of the server, and a pane whose program had exited read
-        as alive.
+        The reader says so once a read hits the end of the pty, which
+        the reap makes reachable by closing the slave (`_reap`). The
+        child may still be alive then, and nothing more comes from it.
         Lillecarl/pymux#120.
         """
         return self._reader.closed
@@ -162,15 +155,15 @@ class PosixBackend(Backend):
         self.write_bytes(text.encode("utf-8", "surrogateescape"))
 
     def write_bytes(self, data):
-        while self.master is not None:
+        # All of it: a write may take less than it was given. An error
+        # is a program that is gone, and its pane ends on its own.
+        view = memoryview(data)
+        while view and self.master is not None:
             try:
-                os.write(self.master, data)
-            except OSError as e:
-                # This happens when the window resizes and a SIGWINCH was received.
-                # We get 'Error: [Errno 4] Interrupted system call'
-                if e.errno == 4:
-                    continue
-            return
+                written = os.write(self.master, view)
+            except OSError:
+                return
+            view = view[written:]
 
     def set_size(self, width, height):
         """
