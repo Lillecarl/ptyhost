@@ -290,11 +290,10 @@ class PosixBackend(Backend):
         """
         Wait for the child, then mark its end.
 
-        **The slave side goes and the master stays.** A reap used to
-        close both at once, so whatever the kernel still held went
-        with them: the error a build printed as it died was lost about
-        one time in twelve, whenever the loop had not turned since the
-        write. Lillecarl/pymux#121.
+        **The slave side goes and the master stays.** Closing both at
+        once drops whatever the kernel still holds: the error a build
+        printed as it died was lost about one time in twelve, whenever
+        the loop had not turned since the write. Lillecarl/pymux#121.
 
         Closing the slave is what makes the end of the file reachable.
         While this process holds it open a read of the master answers
@@ -340,20 +339,15 @@ class PosixBackend(Backend):
             os.waitpid(pid, 0)
 
     def get_name(self):
-        "Return the process name."
-        result = "<unknown>"
-
-        # Apparently, on a Linux system (like my Fedora box), I have to call
-        # `tcgetpgrp` on the `master` fd. However, on te Window subsystem for
-        # Linux, we have to use the `slave` fd.
-
-        if self.master is not None:
-            result = get_name_for_fd(self.master)
-
-        if not result and self.slave is not None:
-            result = get_name_for_fd(self.slave)
-
-        return result
+        "The name of the program in the foreground of this pty."
+        if self.master is None:
+            return "<unknown>"
+        try:
+            pgrp = os.tcgetpgrp(self.master)
+        except OSError:
+            # See: https://github.com/jonathanslenders/pymux/issues/46
+            return None
+        return _name_of_pid(pgrp)
 
     def get_cwd(self):
         if self.pid:
@@ -362,51 +356,26 @@ class PosixBackend(Backend):
 
 if sys.platform.startswith("linux"):
 
-    def get_name_for_fd(fd):
-        """
-        Return the process name for a given process ID.
-
-        :param fd: Slave file descriptor. (Often the master fd works as well,
-            but apparentsly on WSL only the slave FD works.)
-        """
+    def _name_of_pid(pid: int) -> str | None:
         try:
-            pgrp = os.tcgetpgrp(fd)
-        except OSError:
-            # See: https://github.com/jonathanslenders/pymux/issues/46
-            return None
-
-        try:
-            with open("/proc/%s/cmdline" % pgrp, "rb") as f:
+            with open("/proc/%d/cmdline" % pid, "rb") as f:
                 return f.read().decode("utf-8", "ignore").partition("\0")[0]
         except OSError:
-            pass
+            return None
 
 elif sys.platform == "darwin":
     from .darwin import get_proc_name
 
-    def get_name_for_fd(fd):
-        """
-        Return the process name for a given process ID.
-
-        NOTE: on Linux, this seems to require the master FD.
-        """
+    def _name_of_pid(pid: int) -> str | None:
         try:
-            pgrp = os.tcgetpgrp(fd)
+            return get_proc_name(pid)
         except OSError:
             return None
 
-        try:
-            return get_proc_name(pgrp)
-        except OSError:
-            pass
-
 else:
 
-    def get_name_for_fd(fd):
-        """
-        Return the process name for a given process ID.
-        """
-        return
+    def _name_of_pid(pid: int) -> str | None:
+        return None
 
 
 #: `_IOR('T', 0x30, unsigned int)`: the index N of `/dev/pts/N` that a
