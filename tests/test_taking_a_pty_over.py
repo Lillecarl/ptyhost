@@ -22,7 +22,7 @@ def test_only_the_two_ends_of_one_pty_pass():
     try:
         verify_pty(first[0], first[1])
         verify_pty(first[0], None)
-        for master, slave in ((first[0], second[1]), (read, first[1]), (first[0], write)):
+        for master, slave in ((first[0], second[1]), (read, first[1]), (first[0], write), (first[1], first[1])):
             with pytest.raises(OSError):
                 verify_pty(master, slave)
     finally:

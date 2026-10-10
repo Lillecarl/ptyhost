@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import errno
-import fcntl
 import logging
 import os
 import signal
-import stat
-import struct
 import sys
 import warnings
 from collections.abc import Callable
@@ -391,29 +388,24 @@ else:
         return None
 
 
-#: `_IOR('T', 0x30, unsigned int)`: the index N of `/dev/pts/N` that a
-#: pty master belongs to. The `termios` module does not export it.
-TIOCGPTN = 0x80045430
-
-
 def verify_pty(master: int, slave: int | None) -> None:
     """
     Raise `OSError` unless `master` is a pty master and `slave` its slave.
 
-    Every master stats as `/dev/ptmx` (5:2), so two stats cannot pair the
-    ends; on Linux the master's TIOCGPTN index has to equal the slave's
-    minor number. Measured in `examples/exec_seam_poc.py` of pymux.
+    `os.ptsname` names the slave of a master, on Linux and macOS alike,
+    and refuses anything else. Every master stats as `/dev/ptmx`, so a
+    stat cannot pair the two ends.
     """
-    if not stat.S_ISCHR(os.fstat(master).st_mode):
-        raise OSError(errno.ENOTTY, "fd %d is not a pty master" % master)
+    try:
+        name = os.ptsname(master)
+    except OSError as error:
+        raise OSError(errno.ENOTTY, "fd %d is not a pty master" % master) from error
     if slave is None:
         return
     if not os.isatty(slave):
         raise OSError(errno.ENOTTY, "fd %d is not a terminal" % slave)
-    if sys.platform.startswith("linux"):
-        index = struct.unpack("I", fcntl.ioctl(master, TIOCGPTN, b"\0" * 4))[0]
-        if os.minor(os.fstat(slave).st_rdev) != index:
-            raise OSError(errno.ENOTTY, "fd %d and fd %d are two ptys" % (master, slave))
+    if os.ttyname(slave) != name:
+        raise OSError(errno.ENOTTY, "fd %d and fd %d are two ptys" % (master, slave))
 
 
 def get_cwd_for_pid(pid):
