@@ -5,41 +5,25 @@ import errno
 import fcntl
 import logging
 import os
-import resource
 import signal
 import stat
 import struct
 import sys
 import time
-import traceback
 import warnings
 from collections.abc import Callable
-from typing import ClassVar, NamedTuple
+from typing import ClassVar
 
 import anyio
 import anyio.abc
 
+from ..spawn import Spawn, run_in_child
 from .base import Backend
-from .posix_utils import PtyReader, pty_make_controlling_tty, set_terminal_size
+from .posix_utils import PtyReader, set_terminal_size
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PosixBackend", "Spawn"]
-
-
-class Spawn(NamedTuple):
-    """
-    What a child needs to start, as data. The child runs none of its
-    caller's Python between the fork and the exec, so a process that
-    holds the ptys can fork from one of these. Lillecarl/pymux#553.
-
-    `command[0]` is looked up on the PATH of `environment`, not on the
-    PATH of whoever forks.
-    """
-
-    command: list[str]
-    environment: dict[str, str]
-    directory: str | None = None
+__all__ = ["PosixBackend"]
 
 
 class PosixBackend(Backend):
@@ -261,7 +245,8 @@ class PosixBackend(Backend):
             pid = os.fork()
 
         if pid == 0:
-            self._in_child(spawn)
+            assert self.master is not None and self.slave is not None
+            run_in_child(spawn, self.master, self.slave)
         elif pid > 0:
             # We wait a very short while, to be sure the child had the time to
             # call _exec. (Otherwise, we are still sharing signal handlers and
@@ -296,56 +281,6 @@ class PosixBackend(Backend):
             # [Errno 3] No such process.
             with contextlib.suppress(OSError):
                 os.kill(self.pid, signal)
-
-    def _in_child(self, spawn: Spawn):
-        "Will be executed in the forked child."
-        os.close(self.master)
-
-        # Remove signal handler for SIGWINCH as early as possible.
-        # (We don't want this to be triggered when execv has not been called
-        # yet.)
-        signal.signal(signal.SIGWINCH, 0)
-
-        pty_make_controlling_tty(self.slave)
-
-        # In the fork, set the stdin/out/err to our slave pty.
-        os.dup2(self.slave, 0)
-        os.dup2(self.slave, 1)
-        os.dup2(self.slave, 2)
-
-        # Execute in child.
-        try:
-            self._close_file_descriptors()
-            if spawn.directory is not None:
-                with contextlib.suppress(OSError):
-                    os.chdir(spawn.directory)
-            os.execvpe(spawn.command[0], spawn.command, spawn.environment)
-        except Exception:
-            traceback.print_exc()
-
-            # The traceback went to the pty, which is the pane. Exiting
-            # now would close the pane with it and the person would see
-            # nothing. Five seconds is long enough to read that
-            # something went wrong and to copy the first line of it.
-            time.sleep(5)
-
-            os._exit(1)
-
-    def _close_file_descriptors(self):
-        # Do not allow child to inherit open file descriptors from parent.
-        # (In case that we keep running Python code. We shouldn't close them.
-        # because the garbage collector is still active, and he will close them
-        # eventually.)
-        max_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[-1]
-
-        try:
-            os.closerange(3, max_fd)
-        except OverflowError:
-            # On OS X, max_fd can return very big values, than closerange
-            # doesn't understand, e.g. 9223372036854775807. In this case, just
-            # use 4096. This is what Linux systems report, and should be
-            # sufficient. (I hope...)
-            os.closerange(3, 4096)
 
     def close(self):
         """
