@@ -17,6 +17,7 @@ import time
 
 import pytest
 
+from ptyhost.backends.posix_utils import set_terminal_size
 from ptyhost.holder import VERSION, HolderClient, HolderError, receive, send
 from ptyhost.spawn import Spawn
 
@@ -32,23 +33,6 @@ ECHO = (
     "        sys.exit(int(line.split()[1]))\n"
     "    print('<' + line.strip() + '>', flush=True)\n"
 )
-
-
-@pytest.fixture
-def holder(tmp_path):
-    "A holder in the foreground, and the path of its socket."
-    path = str(tmp_path / "holder.sock")
-    process = subprocess.Popen([sys.executable, "-m", "ptyhost.holder", "--socket", path])
-    deadline = time.monotonic() + TIMEOUT
-    while not os.path.exists(path):
-        assert process.poll() is None, "the holder ended at start"
-        assert time.monotonic() < deadline, "the holder never bound its socket"
-        time.sleep(0.01)
-    try:
-        yield path, process
-    finally:
-        process.kill()
-        process.wait()
 
 
 def until(master: int, text: str) -> str:
@@ -68,8 +52,18 @@ def until(master: int, text: str) -> str:
     return seen.decode(errors="replace")
 
 
+def started(client: HolderClient, program: str, columns: int = 80, rows: int = 24) -> tuple[dict, int]:
+    "A python program on a pty this process opened, the way a server starts one."
+    master, slave = os.openpty()
+    set_terminal_size(master, rows, columns)
+    try:
+        return client.spawn(Spawn([sys.executable, "-c", program], dict(os.environ)), master, slave), master
+    finally:
+        os.close(slave)
+
+
 def echo(client: HolderClient) -> tuple[dict, int]:
-    return client.spawn(Spawn([sys.executable, "-c", ECHO], dict(os.environ)), 80, 24)
+    return started(client, ECHO)
 
 
 def test_a_program_the_holder_starts_talks_to_the_server(holder):
@@ -148,9 +142,33 @@ def test_a_program_starts_with_the_size_it_was_given(holder):
     path, _ = holder
     client = HolderClient.connect(path)
     size = "import os; s = os.get_terminal_size(); print('SIZE %d %d' % (s.columns, s.lines), flush=True); input()"
-    _, master = client.spawn(Spawn([sys.executable, "-c", size], dict(os.environ)), 100, 30)
+    _, master = started(client, size, columns=100, rows=30)
 
     until(master, "SIZE 100 30")
+
+
+def test_a_spawn_without_its_pty_is_refused(holder):
+    path, _ = holder
+    client = HolderClient.connect(path)
+
+    with pytest.raises(HolderError, match="master and the slave"):
+        client.request({"op": "spawn", "command": ["true"], "environment": {}})
+
+
+def test_quit_hangs_up_every_program_and_ends_the_holder(holder):
+    path, process = holder
+    client = HolderClient.connect(path)
+    program, master = echo(client)
+    until(master, "READY")
+    os.close(master)
+
+    client.quit()
+
+    assert process.wait(TIMEOUT) == 0
+    deadline = time.monotonic() + TIMEOUT
+    while _alive(program["pid"]):
+        assert time.monotonic() < deadline, "the program outlived its holder"
+        time.sleep(0.01)
 
 
 def test_another_version_is_refused(holder):

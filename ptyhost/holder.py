@@ -36,10 +36,9 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from .backends.posix_utils import set_terminal_size
 from .spawn import Spawn, run_in_child
 
-__all__ = ("VERSION", "HolderClient", "HolderError", "main")
+__all__ = ("VERSION", "HolderClient", "HolderError", "main", "receive", "send", "spawn_request")
 
 #: Bumped when a message changes. A newer server meets an older holder
 #: after every upgrade, so the first message says which one it speaks.
@@ -107,6 +106,11 @@ def receive(sock: socket.socket) -> tuple[dict[str, Any], list[int]] | None:
     return json.loads(body), fds
 
 
+def spawn_request(spawn: Spawn) -> dict[str, Any]:
+    "The message that starts `spawn`. The pty rides along as `[master, slave]`."
+    return {"op": "spawn", "command": spawn.command, "environment": spawn.environment, "directory": spawn.directory}
+
+
 def _close_all(fds: Sequence[int]) -> None:
     for fd in fds:
         with contextlib.suppress(OSError):
@@ -139,6 +143,8 @@ class Holder:
         self.programs: dict[int, _Program] = {}
         #: Each connected server, and whether it said hello.
         self.servers: dict[socket.socket, bool] = {}
+        #: A server asked to end it all: the server itself is ending.
+        self.quitting = False
         self._next_id = 1
 
         # A SIGCHLD wakes the selector through this pair.
@@ -163,6 +169,9 @@ class Holder:
                 else:
                     self._serve(key.fileobj)  # type: ignore[arg-type]
             self._reap()
+            if self.quitting:
+                self._hang_up()
+                return
 
             now = time.monotonic()
             if self.servers:
@@ -204,19 +213,22 @@ class Holder:
             self._drop(server)
             return
         message, fds = got
-        _close_all(fds)
         # Any exception and not a list: one that escapes ends the holder,
         # and that hangs up every program it holds.
         try:
-            reply, carried = self._answer(server, message)
+            reply, carried = self._answer(server, message, fds)
         except Exception as error:
             reply, carried = {"error": "%s: %s" % (type(error).__name__, error)}, []
+        finally:
+            _close_all(fds)
         try:
             send(server, reply, carried)
         except OSError:
             self._drop(server)
 
-    def _answer(self, server: socket.socket, message: dict[str, Any]) -> tuple[dict[str, Any], list[int]]:
+    def _answer(
+        self, server: socket.socket, message: dict[str, Any], fds: list[int]
+    ) -> tuple[dict[str, Any], list[int]]:
         op = message.get("op")
         if op == "hello":
             if message.get("version") != VERSION:
@@ -226,9 +238,10 @@ class Holder:
         if not self.servers[server]:
             return {"error": "say hello first"}, []
         if op == "spawn":
-            program = self._spawn(message)
-            assert program.master is not None
-            return program.describe(), [program.master]
+            return self._spawn(message, fds).describe(), []
+        if op == "quit":
+            self.quitting = True
+            return {}, []
         if op == "programs":
             return {"programs": [p.describe() for p in self.programs.values() if not p.released]}, []
         program = self.programs.get(message.get("id"))  # type: ignore[arg-type]
@@ -242,19 +255,24 @@ class Holder:
             return {}, []
         return {"error": "no op %r" % (op,)}, []
 
-    def _spawn(self, message: dict[str, Any]) -> _Program:
+    def _spawn(self, message: dict[str, Any], fds: list[int]) -> _Program:
+        """
+        Fork onto the pty the server opened and sized, which arrives as
+        `[master, slave]`. The holder keeps a copy of the master and lets
+        the slave go: a slave left open here would hide the end of the
+        program from every reader.
+        """
+        if len(fds) != 2:
+            raise HolderError("a spawn carries the master and the slave of a pty, not %d fds" % (len(fds),))
         spawn = Spawn(list(message["command"]), dict(message["environment"]), message.get("directory"))
-        master, slave = os.openpty()
+        master, slave = (os.dup(fd) for fd in fds)
         try:
-            set_terminal_size(master, message["rows"], message["columns"], tuple(message.get("cell", (0, 0))))
             pid = os.fork()
         except BaseException:
             _close_all((master, slave))
             raise
         if pid == 0:
             run_in_child(spawn, master, slave)
-        # The holder keeps the master and not the slave: a slave left open
-        # here would hide the end of the program from every reader.
         os.close(slave)
         program = _Program(self._next_id, pid, master)
         self._next_id += 1
@@ -315,8 +333,8 @@ class HolderClient:
             raise
         return client
 
-    def request(self, message: dict[str, Any]) -> tuple[dict[str, Any], list[int]]:
-        send(self.sock, message)
+    def request(self, message: dict[str, Any], fds: Sequence[int] = ()) -> tuple[dict[str, Any], list[int]]:
+        send(self.sock, message, fds)
         while True:
             got = receive(self.sock)
             if got is None:
@@ -330,21 +348,10 @@ class HolderClient:
                 raise HolderError(reply["error"])
             return reply, fds
 
-    def spawn(self, spawn: Spawn, columns: int, rows: int, cell: tuple[int, int] = (0, 0)) -> tuple[dict, int]:
-        "Start a program. Its description, and this process's copy of its master."
-        reply, fds = self.request(
-            {
-                "op": "spawn",
-                "command": spawn.command,
-                "environment": spawn.environment,
-                "directory": spawn.directory,
-                "columns": columns,
-                "rows": rows,
-                "cell": list(cell),
-            }
-        )
-        (master,) = fds
-        return reply, master
+    def spawn(self, spawn: Spawn, master: int, slave: int) -> dict[str, Any]:
+        "Start a program on the pty `master` and `slave` are, opened and sized here."
+        reply, _ = self.request(spawn_request(spawn), [master, slave])
+        return reply
 
     def programs(self) -> list[dict[str, Any]]:
         reply, _ = self.request({"op": "programs"})
@@ -357,6 +364,10 @@ class HolderClient:
 
     def release(self, program_id: int) -> None:
         self.request({"op": "release", "id": program_id})
+
+    def quit(self) -> None:
+        "Hang up every program and end the holder: the server is ending."
+        self.request({"op": "quit"})
 
     def next_event(self) -> dict[str, Any]:
         "The oldest event, waiting for one when none has arrived yet."
