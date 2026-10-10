@@ -204,8 +204,8 @@ def test_a_second_holder_on_the_same_socket_is_refused(holder):
     assert "already" in second.stderr
 
 
-def test_an_idle_holder_ends(tmp_path):
-    path = str(tmp_path / "holder.sock")
+def test_an_idle_holder_ends(socket_dir):
+    path = str(socket_dir / "holder.sock")
     quickly = "import sys, ptyhost.holder as h; h.IDLE_SECONDS = 0.2; sys.exit(h.main(sys.argv[1:]))"
     process = subprocess.Popen([sys.executable, "-c", quickly, "--socket", path])
     try:
@@ -215,8 +215,8 @@ def test_an_idle_holder_ends(tmp_path):
         process.kill()
 
 
-def test_programs_no_server_comes_back_for_are_hung_up(tmp_path):
-    path = str(tmp_path / "holder.sock")
+def test_programs_no_server_comes_back_for_are_hung_up(socket_dir):
+    path = str(socket_dir / "holder.sock")
     shortly = "import sys, ptyhost.holder as h; h.ORPHAN_SECONDS = 0.3; sys.exit(h.main(sys.argv[1:]))"
     process = subprocess.Popen([sys.executable, "-c", shortly, "--socket", path])
     try:
@@ -248,8 +248,8 @@ def _alive(pid: int) -> bool:
         return False
 
 
-def test_a_detached_holder_is_reachable_once_its_starter_returns(tmp_path):
-    path = str(tmp_path / "holder.sock")
+def test_a_detached_holder_is_reachable_once_its_starter_returns(socket_dir):
+    path = str(socket_dir / "holder.sock")
     started = subprocess.Popen([sys.executable, "-m", "ptyhost.holder", "--socket", path, "--detach"])
     assert started.wait(TIMEOUT) == 0
 

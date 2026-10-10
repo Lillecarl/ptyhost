@@ -14,6 +14,7 @@ import sys
 
 import anyio
 import pytest
+from test_running_a_program import names_of
 
 import ptyhost.held as held_module
 from ptyhost import Process
@@ -157,7 +158,7 @@ async def test_a_held_program_has_exec_d_by_the_reply(holder):
         process.set_size(80, 24)
         await process.start(task_group)
         try:
-            assert os.path.basename(backend.get_name() or "") == "sleep"
+            assert os.path.basename(backend.get_name() or "") in names_of(sleep)
         finally:
             process.kill()
             holding.close()
@@ -216,7 +217,9 @@ async def test_a_holder_that_stops_reading_holds_no_loop(monkeypatch):
         task_group.start_soon(turning)
         with pytest.raises(TimeoutError):
             await holding.request({"op": "programs", "padding": "x" * (8 << 20)})
-        assert turns > 10, "the loop stood still while the send waited"
+        # A loop the send held turns once. A loaded machine's timer can
+        # stretch each sleep several times over, so not many more.
+        assert turns > 2, "the loop stood still while the send waited"
         assert holding.lost
         task_group.cancel_scope.cancel()
     theirs.close()

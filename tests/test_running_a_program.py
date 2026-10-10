@@ -42,6 +42,15 @@ TICK = 0.01
 LINGER = "\nimport time\ntime.sleep(30)\n"
 
 
+def names_of(program: str) -> set[str]:
+    """
+    What a pty may call a running `program`. Linux reads `argv[0]`;
+    macOS reads `p_comm`, the executable's own file name cut to 16
+    bytes, and nix's `sleep` is a link to the one `coreutils`.
+    """
+    return {os.path.basename(program), os.path.basename(os.path.realpath(program))[:16]}
+
+
 async def until(said, text: str) -> None:
     "Wait for `text` to turn up in what the program wrote."
     try:
@@ -307,9 +316,11 @@ async def test_a_program_starts_in_the_environment_and_directory_it_was_given(tm
 
 async def test_a_program_gets_sigwinch_and_this_process_keeps_its_mask():
     "The fork blocks SIGWINCH until the child has reset it; neither side stays blocked."
+    # The mask an exec keeps, read from the program itself: /proc is Linux's.
     program = (
-        "blocked = int(next(l for l in open('/proc/self/status') if l.startswith('SigBlk:')).split()[1], 16)\n"
-        "print('WINCH BLOCKED' if blocked & (1 << (%d - 1)) else 'WINCH FREE', flush=True)" % signal.SIGWINCH
+        "import signal\n"
+        "blocked = signal.SIGWINCH in signal.pthread_sigmask(signal.SIG_BLOCK, [])\n"
+        "print('WINCH BLOCKED' if blocked else 'WINCH FREE', flush=True)"
     )
     said: list[str] = []
     async with anyio.create_task_group() as task_group:
@@ -363,7 +374,7 @@ async def test_a_started_program_has_already_exec_d():
         process.set_size(80, 24)
         await process.start(task_group)
         try:
-            assert os.path.basename(backend.get_name() or "") == "sleep"
+            assert os.path.basename(backend.get_name() or "") in names_of(sleep)
         finally:
             process.kill()
 
@@ -409,7 +420,11 @@ async def test_a_write_to_a_program_that_never_reads_does_not_wait():
         await process.start(task_group)
         try:
             backend.write_bytes(b"x" * (1 << 20))
-            assert backend._unwritten, "a megabyte fitted in the pty"
+            # Linux holds the input until it is read, and what does not
+            # fit waits here. A BSD tty drops what overflows its queue,
+            # so on macOS the write takes it all and nothing waits.
+            if sys.platform.startswith("linux"):
+                assert backend._unwritten, "a megabyte fitted in the pty"
         finally:
             process.kill()
 
