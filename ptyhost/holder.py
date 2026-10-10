@@ -85,6 +85,10 @@ def receive(sock: socket.socket) -> tuple[dict[str, Any], list[int]] | None:
     fds: list[int] = []
     while len(header) < _HEADER.size:
         data, got, _flags, _address = socket.recv_fds(sock, _HEADER.size - len(header), MAX_FDS)
+        # `recv_fds` leaves them inheritable, and every fork after would
+        # carry a pty into a program that has no business with it.
+        for fd in got:
+            os.set_inheritable(fd, False)
         fds.extend(got)
         if not data:
             _close_all(fds)
