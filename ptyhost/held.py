@@ -25,7 +25,7 @@ import anyio.abc
 
 from .backends.posix import PosixBackend, verify_pty
 from .holder import MESSAGE_SECONDS, HolderClient, HolderError, receive, send, spawn_request
-from .spawn import Spawn
+from .spawn import EXEC_SECONDS, Spawn
 
 __all__ = ("HeldBackend", "Holding", "backend_of")
 
@@ -40,6 +40,9 @@ class Holding:
         self._lock = anyio.Lock()
         self._reply: tuple[dict[str, Any], list[int]] | None = None
         self._replied = anyio.Event()
+        #: Replies still to come for requests that stopped waiting. The
+        #: holder answers in order, so the next this many are theirs.
+        self._abandoned = 0
         self._ended: dict[int, anyio.Event] = {}
         #: The exit code of each program the holder said ended.
         self.statuses: dict[int, int | None] = {}
@@ -62,6 +65,9 @@ class Holding:
                 if message.get("event") == "exited":
                     _close_all(fds)
                     self._end(message["id"], message["status"])
+                elif self._abandoned:
+                    self._abandoned -= 1
+                    _close_all(fds)
                 else:
                     self._reply = (message, fds)
                     self._replied.set()
@@ -89,8 +95,18 @@ class Holding:
                 send(self.sock, message, fds)
             except OSError as error:
                 raise HolderError("the holder is gone") from error
-            with anyio.fail_after(MESSAGE_SECONDS):
-                await self._replied.wait()
+            # **A request that stops waiting leaves its reply to come.**
+            # Taken by the next request it would answer the wrong
+            # question, and a master it carried would leak.
+            try:
+                with anyio.fail_after(MESSAGE_SECONDS + EXEC_SECONDS):
+                    await self._replied.wait()
+            except BaseException:
+                if not self._replied.is_set():
+                    self._abandoned += 1
+                elif self._reply is not None:
+                    _close_all(self._reply[1])
+                raise
             if self._reply is None:
                 raise HolderError("the holder is gone")
             reply, got = self._reply

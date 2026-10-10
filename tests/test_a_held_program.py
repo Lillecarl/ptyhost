@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import sys
 
 import anyio
@@ -17,7 +18,7 @@ import pytest
 from ptyhost import Process
 from ptyhost.backends.posix import spawn_of
 from ptyhost.held import HeldBackend, Holding
-from ptyhost.holder import HolderError
+from ptyhost.holder import HolderError, receive, send
 
 #: How long a test may wait for a program or the holder, in seconds.
 TIMEOUT = 5.0
@@ -159,3 +160,33 @@ async def test_a_held_program_has_exec_d_by_the_reply(holder):
         finally:
             process.kill()
             holding.close()
+
+
+async def test_a_reply_nobody_waits_for_answers_no_one_else():
+    """
+    A request that stops waiting leaves its reply to come, and the next
+    request must not take it as its own. A holder played by hand, so
+    the reply can come late on purpose.
+    """
+    ours, theirs = socket.socketpair()
+    holding = Holding(ours)
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(holding.run)
+
+        with anyio.move_on_after(0.2):
+            await holding.programs()
+        # The holder reads the question it was too slow for, and only
+        # now answers it.
+        await anyio.to_thread.run_sync(receive, theirs)
+        send(theirs, {"programs": [{"id": "stale"}]})
+
+        async def answer() -> None:
+            await anyio.to_thread.run_sync(receive, theirs)
+            send(theirs, {"programs": []})
+
+        task_group.start_soon(answer)
+        with anyio.fail_after(TIMEOUT):
+            assert await holding.programs() == []
+
+        holding.close()
+        theirs.close()
