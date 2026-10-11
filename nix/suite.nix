@@ -84,13 +84,31 @@ rec {
       # after it passed. The subshell puts the option back where the suite
       # is, and the suite's own exit still reaches `PIPESTATUS` rather than
       # this build. Lillecarl/pymux#464.
-      # `seconds` is the suite's wall time, which `checks.all` lists, so
-      # the slowest check is named rather than guessed.
+      # `seconds` is the suite's wall time and `cpu` the CPU seconds its
+      # processes took, which `checks.all` lists. `checks.all` runs many
+      # suites at once on too few cores, so one suite's wall time is
+      # mostly the others' load, and its CPU time is what it costs.
+      # `times` counts only the children the shell waited for, so a
+      # daemon that a suite forks away is not in it.
       set +e
       started=$SECONDS
+      times > "$TMPDIR/times-before"
       ( set -e; ${command} ) 2>&1 | tee "$out/log"
       echo "''${PIPESTATUS[0]}" > "$out/status"
+      times > "$TMPDIR/times-after"
       echo "$((SECONDS - started))" > "$out/seconds"
+      awk '
+        # The second line of `times` is the children: user and system,
+        # each as 1m2.345s.
+        FNR == 2 {
+          for (i = 1; i <= 2; i++) {
+            split($i, part, "m")
+            sub(/s$/, "", part[2])
+            spent[FILENAME] += part[1] * 60 + part[2]
+          }
+        }
+        END { printf "%d\n", spent[ARGV[2]] - spent[ARGV[1]] + 0.5 }
+      ' "$TMPDIR/times-before" "$TMPDIR/times-after" > "$out/cpu"
       set -e
 
       # A run that could not run is not an answer, so nix must not keep it.
@@ -103,7 +121,7 @@ rec {
         exit 1
       fi
 
-      echo "${name} ended with $(cat "$out/status") after $(cat "$out/seconds") s"
+      echo "${name} ended with $(cat "$out/status") after $(cat "$out/seconds") s, $(cat "$out/cpu") s of CPU"
     '';
 
   # The verdict on one run.
