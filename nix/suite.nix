@@ -84,9 +84,13 @@ rec {
       # after it passed. The subshell puts the option back where the suite
       # is, and the suite's own exit still reaches `PIPESTATUS` rather than
       # this build. Lillecarl/pymux#464.
+      # `seconds` is the suite's wall time, which `checks.all` lists, so
+      # the slowest check is named rather than guessed.
       set +e
+      started=$SECONDS
       ( set -e; ${command} ) 2>&1 | tee "$out/log"
       echo "''${PIPESTATUS[0]}" > "$out/status"
+      echo "$((SECONDS - started))" > "$out/seconds"
       set -e
 
       # A run that could not run is not an answer, so nix must not keep it.
@@ -99,7 +103,7 @@ rec {
         exit 1
       fi
 
-      echo "${name} ended with $(cat "$out/status")"
+      echo "${name} ended with $(cat "$out/status") after $(cat "$out/seconds") s"
     '';
 
   # The verdict on one run.
