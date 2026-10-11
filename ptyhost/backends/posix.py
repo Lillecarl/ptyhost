@@ -164,6 +164,10 @@ class PosixBackend(Backend):
         "At most a page of what the program drew, decoded."
         return self._reader.read(amount)
 
+    def read_bytes(self, amount=4096):
+        "At most a page of what the program drew, as the pty gave it."
+        return self._reader.read_bytes(amount)
+
     @property
     def more_is_waiting(self) -> bool:
         return self._reader.filled

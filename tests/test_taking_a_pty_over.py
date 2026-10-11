@@ -44,3 +44,16 @@ def test_a_character_cut_in_two_survives_a_new_reader():
     finally:
         os.close(read)
         os.close(write)
+
+
+def test_a_byte_read_is_the_bytes_of_the_read():
+    "Not UTF-8, an eight bit control, and half a character, each as written."
+    read, write = os.pipe()
+    try:
+        reader = PtyReader(read)
+        for written in (b"\xff\x9b6n", "é".encode()[:1], "é".encode()[1:]):
+            os.write(write, written)
+            assert reader.read_bytes() == written
+    finally:
+        os.close(read)
+        os.close(write)

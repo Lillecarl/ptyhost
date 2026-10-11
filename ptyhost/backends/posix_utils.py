@@ -87,9 +87,19 @@ class PtyReader:
         gives the event loop one long turn, and everything else waits
         for it.
         """
+        return self._decoder.decode(self.read_bytes(count))
+
+    def read_bytes(self, count: int = 1024) -> bytes:
+        """
+        What the program has written, byte for byte, as one read of the
+        pty gave it. A proxy needs this: no decoder gives back a byte
+        that is not UTF-8, and a decoder moves where a read ends.
+        Do not mix it with `read` on one reader, whose decoder may hold
+        the start of a character.
+        """
         self.filled = False
         if self.closed:
-            return ""
+            return b""
 
         # The descriptor is non-blocking, so a read with nothing there
         # says so rather than waiting. A callback the loop fired can
@@ -98,9 +108,9 @@ class PtyReader:
             data = os.read(self.fd, count)
             if data == b"":
                 self.closed = True
-                return ""
+                return b""
         except BlockingIOError:
-            return ""
+            return b""
         except OSError:
             # **This is the end of the file on a pty.** A master whose
             # slave side is all closed answers `EIO` rather than with
@@ -109,10 +119,10 @@ class PtyReader:
             # whose program had exited read as alive.
             # Lillecarl/pymux#120.
             self.closed = True
-            return ""
+            return b""
 
         self.filled = len(data) == count
-        return self._decoder.decode(data)
+        return data
 
 
 def pty_make_controlling_tty(tty_fd):
