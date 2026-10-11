@@ -147,6 +147,16 @@ async def test_the_end_of_a_program_is_reported():
             process.kill()
 
 
+@pytest.mark.parametrize(("program", "code"), [("raise SystemExit(3)", 3), ("import os; os.kill(os.getpid(), 9)", -9)])
+async def test_the_end_of_a_program_says_how_it_ended(program, code):
+    ended = anyio.Event()
+    async with anyio.create_task_group() as task_group:
+        process = await running(program, [], ended.set, linger=False, task_group=task_group)
+        with anyio.fail_after(TIMEOUT):
+            await ended.wait()
+        assert process.backend.returncode == code
+
+
 @pytest.mark.parametrize("run", range(12))
 async def test_the_last_thing_a_program_writes_arrives(run):
     """

@@ -80,6 +80,7 @@ class PosixBackend(Backend):
         "_unwritten": "dropped",  # keys still on their way when it paused
         "_more_to_write": "rebuilt",
         "_name_kept": "dropped",
+        "returncode": "dropped",  # the program is running, so there is none
     }
 
     def __init__(self, spawn: Callable[[], Spawn] | None, cell=(0, 0), pty: tuple[int, int | None] | None = None):
@@ -122,6 +123,10 @@ class PosixBackend(Backend):
         self._reading.set()
 
         self.pid: int | None = None
+        #: How the program ended, as `subprocess` says it: negative for a
+        #: signal. None while it runs, and for a program another server
+        #: reaped.
+        self.returncode: int | None = None
 
     def add_input_ready_callback(self, callback):
         self._input_ready_callbacks.append(callback)
@@ -405,7 +410,7 @@ class PosixBackend(Backend):
         if pid is None:
             return
         with contextlib.suppress(ChildProcessError):
-            os.waitpid(pid, 0)
+            self.returncode = os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
 
     def get_name(self):
         """
