@@ -207,6 +207,8 @@ class PosixBackend(Backend):
             while self._unwritten and self.master is not None:
                 try:
                     await anyio.wait_writable(self.master)
+                    if self.master is None:
+                        return  # The pump closed it while this waited.
                     written = os.write(self.master, self._unwritten)
                 except BlockingIOError:
                     continue

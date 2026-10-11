@@ -429,6 +429,30 @@ async def test_a_write_to_a_program_that_never_reads_does_not_wait():
             process.kill()
 
 
+async def test_a_close_while_the_writer_waits_ends_the_writer(monkeypatch):
+    """
+    The pty turns writable, and the pump closes it before the writer
+    runs again. The writer then holds no file to write to, and ends.
+    It wrote to `None` once, under a loaded gate.
+    """
+    backend = PosixBackend(spawn_of(["true"]))
+    backend._unwritten += b"x"
+    backend._more_to_write.set()
+
+    async def writable_then_closed(fd):
+        backend.close()
+
+    monkeypatch.setattr(anyio, "wait_writable", writable_then_closed)
+    try:
+        with anyio.fail_after(5):
+            await backend._write_the_rest()
+    finally:
+        if backend.slave is not None:
+            os.close(backend.slave)
+
+    assert backend.master is None
+
+
 async def test_what_did_not_fit_reaches_the_program():
     "Every byte, in order, once the program reads. Lillecarl/pymux#563."
     data = bytes(range(256)) * 800
