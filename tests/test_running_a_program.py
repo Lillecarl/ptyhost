@@ -134,6 +134,22 @@ async def test_a_resize_reaches_a_program_that_is_already_running():
             process.kill()
 
 
+async def test_a_tap_hears_a_resize_once():
+    "A recorder keeps the size changes, so a replay draws at the size the program drew at."
+    said = []
+    tapped = []
+    async with anyio.create_task_group() as task_group:
+        process = await running("print('READY', flush=True)", said, task_group=task_group)
+        try:
+            process.tap = lambda kind, data: tapped.append((kind, data)) if kind == "size" else None
+            process.set_size(80, 24)
+            process.set_size(40, 10)
+            process.set_size(40, 10)
+            assert tapped == [("size", "40x10")]
+        finally:
+            process.kill()
+
+
 async def test_the_end_of_a_program_is_reported():
     "The one program that ends. Nothing here reads what it wrote."
     said = []

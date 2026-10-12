@@ -84,7 +84,8 @@ class Process:
         self._started = False
 
         #: Called with "out" and each page the program wrote, before it
-        #: is fed, and with "in" and everything written to it. A
+        #: is fed, with "in" and everything written to it, and with
+        #: "size" and "COLUMNSxLINES" when the pty changes size. A
         #: recorder listens here: it sees what the program saw, in the
         #: environment it really runs in.
         self.tap: Callable[[str, str], None] | None = None
@@ -159,6 +160,8 @@ class Process:
         """
         if (self.sx, self.sy) != (width, height):
             self.backend.set_size(width, height)
+            if self.tap is not None:
+                self.tap("size", "%dx%d" % (width, height))
 
         self.sx = width
         self.sy = height
