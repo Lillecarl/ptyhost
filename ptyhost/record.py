@@ -163,6 +163,7 @@ def record(
 
     sizes = []
     events = []
+    timestamp = int(time.time())
     started = time.monotonic()
     saved = None
     # A recorder driven by a script has no keyboard and no screen. The
@@ -265,7 +266,7 @@ def record(
         # recorded for.
         stop_the_program(child, master)
 
-    output = write_recording(directory, name, lines, columns, term, events)
+    output = write_recording(directory, name, lines, columns, term, events, timestamp=timestamp)
     keys = sum(1 for event in events if event[1] == "in")
     print(
         "\r\n%s: %d bytes in %d reads, %d from the keyboard (%s)" % (output, sum(sizes), len(sizes), keys, reason),
@@ -274,15 +275,27 @@ def record(
 
 
 def write_recording(
-    directory: pathlib.Path, name: str, lines: int, columns: int, term: str, events: list
+    directory: pathlib.Path,
+    name: str,
+    lines: int,
+    columns: int,
+    term: str,
+    events: list,
+    timestamp: int | None = None,
+    idle_time_limit: float | None = None,
 ) -> pathlib.Path:
     """
     Write the three files of a recording, and give back the `.bin`.
 
     `events` is `[seconds, "out" or "in", base64]` for each piece, in
-    order. The `.bin` and the read sizes are the "out" pieces. pymux's
-    `record-pane` writes through this too, so both recorders make files
-    that the same checks replay.
+    order, and `[seconds, "size", "COLUMNSxLINES"]` for a resize. The
+    `.bin` and the read sizes are the "out" pieces. pymux's `record-pane`
+    writes through this too, so both recorders make files that the same
+    checks replay.
+
+    `timestamp` is when it started, in seconds since the epoch, and
+    `idle_time_limit` is the longest pause a player shows. Both are the
+    asciicast header's, and `ptyhost.asciicast` copies them there.
     """
     directory.mkdir(parents=True, exist_ok=True)
     pieces = [base64.b64decode(event[2]) for event in events if event[1] == "out"]
@@ -291,9 +304,13 @@ def write_recording(
     (directory / ("%s.reads.json" % name)).write_text(
         json.dumps({"lines": lines, "columns": columns, "sizes": [len(piece) for piece in pieces]})
     )
-    (directory / ("%s.session.json" % name)).write_text(
-        json.dumps({"lines": lines, "columns": columns, "term": term, "events": events})
-    )
+    session: dict = {"lines": lines, "columns": columns, "term": term}
+    if timestamp is not None:
+        session["timestamp"] = timestamp
+    if idle_time_limit is not None:
+        session["idle_time_limit"] = idle_time_limit
+    session["events"] = events
+    (directory / ("%s.session.json" % name)).write_text(json.dumps(session))
     return output
 
 

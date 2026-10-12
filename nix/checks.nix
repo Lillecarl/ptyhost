@@ -18,6 +18,8 @@
   testSources,
   # The linter and formatter that the `ruff` check runs.
   ruff,
+  # The player whose reader judges an exported asciicast.
+  asciinema,
 }:
 let
   inherit (callPackage ./suite.nix { }) suite;
@@ -51,7 +53,10 @@ in
   # compare against, because this package holds none.
   unit = suite {
     name = "ptyhost-unit";
-    inputs = [ testEnv ];
+    inputs = [
+      testEnv
+      asciinema
+    ];
     env = {
       inherit selection;
       PTYHOST_HANG_SECONDS = hangIsSeconds;
