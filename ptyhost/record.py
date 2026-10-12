@@ -144,9 +144,6 @@ def record(
 ) -> None:
     directory = into or pathlib.Path()
     directory.mkdir(parents=True, exist_ok=True)
-    output = directory / ("%s.bin" % name)
-    reads = directory / ("%s.reads.json" % name)
-    session = directory / ("%s.session.json" % name)
 
     child, master = pty.fork()
     if child == 0:
@@ -164,7 +161,6 @@ def record(
 
     set_size(master, lines, columns)
 
-    written = []
     sizes = []
     events = []
     started = time.monotonic()
@@ -248,7 +244,6 @@ def record(
                     break
                 if not data:
                     break
-                written.append(data)
                 sizes.append(len(data))
                 events.append(
                     [
@@ -270,14 +265,36 @@ def record(
         # recorded for.
         stop_the_program(child, master)
 
-    output.write_bytes(b"".join(written))
-    reads.write_text(json.dumps({"lines": lines, "columns": columns, "sizes": sizes}))
-    session.write_text(json.dumps({"lines": lines, "columns": columns, "term": term, "events": events}))
+    output = write_recording(directory, name, lines, columns, term, events)
     keys = sum(1 for event in events if event[1] == "in")
     print(
         "\r\n%s: %d bytes in %d reads, %d from the keyboard (%s)" % (output, sum(sizes), len(sizes), keys, reason),
         file=sys.stderr,
     )
+
+
+def write_recording(
+    directory: pathlib.Path, name: str, lines: int, columns: int, term: str, events: list
+) -> pathlib.Path:
+    """
+    Write the three files of a recording, and give back the `.bin`.
+
+    `events` is `[seconds, "out" or "in", base64]` for each piece, in
+    order. The `.bin` and the read sizes are the "out" pieces. pymux's
+    `record-pane` writes through this too, so both recorders make files
+    that the same checks replay.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    pieces = [base64.b64decode(event[2]) for event in events if event[1] == "out"]
+    output = directory / ("%s.bin" % name)
+    output.write_bytes(b"".join(pieces))
+    (directory / ("%s.reads.json" % name)).write_text(
+        json.dumps({"lines": lines, "columns": columns, "sizes": [len(piece) for piece in pieces]})
+    )
+    (directory / ("%s.session.json" % name)).write_text(
+        json.dumps({"lines": lines, "columns": columns, "term": term, "events": events})
+    )
+    return output
 
 
 def main() -> None:

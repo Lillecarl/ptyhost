@@ -60,6 +60,7 @@ class Process:
         "invalidate": "rebuilt",
         "done_callback": "rebuilt",
         "has_priority": "rebuilt",
+        "tap": "dropped",
         "_invalidated_at": "dropped",
         "_owed": "dropped",
         "_task_group": "dropped",
@@ -81,6 +82,12 @@ class Process:
 
         self.suspended = False
         self._started = False
+
+        #: Called with "out" and each page the program wrote, before it
+        #: is fed, and with "in" and everything written to it. A
+        #: recorder listens here: it sees what the program saw, in the
+        #: environment it really runs in.
+        self.tap: Callable[[str, str], None] | None = None
 
         # When the last redraw was asked for, whether one is owed to a
         # page that was held back, and the group that pays it.
@@ -165,6 +172,8 @@ class Process:
         knows the modes; `BetterScreen.encode_key` and `wrap_paste` are
         those two.
         """
+        if self.tap is not None:
+            self.tap("in", data)
         self.backend.write_text(data)
 
     async def _read(self) -> None:
@@ -202,6 +211,8 @@ class Process:
             self._feed(page)
 
     def _feed(self, page: str) -> None:
+        if self.tap is not None:
+            self.tap("out", page)
         try:
             self.receive(page)
         except Exception:
