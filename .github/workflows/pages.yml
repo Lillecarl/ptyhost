@@ -1,6 +1,7 @@
 # Deploys this repository's docs site, the one workflow a source's
-# repository runs: its tests run in pyterm. pyterm exports this file
-# with the rest of the source, so edit it there. Lillecarl/pymux#671.
+# repository runs: its tests run in pyterm. pyterm's `sync-sources`
+# writes this file from its `nix/shared/pages.yml`, so edit that one.
+# Lillecarl/pymux#671.
 
 name: Pages
 on:
