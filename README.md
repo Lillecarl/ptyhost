@@ -14,13 +14,21 @@ Run a program on a pty. Start it, size it, pump its bytes, record them.
 a callback, and whoever built the `Process` decides what that means.
 
 ```python
+import anyio
 from ptyhost import Process
-from ptyhost.backends.posix import PosixBackend
+from ptyhost.backends.posix import PosixBackend, spawn_of
 
-backend = PosixBackend.from_command(["bash"])
-process = Process(backend, receive=print)
-process.set_size(80, 24)
-process.start()
+backend = PosixBackend(spawn_of(["bash"]))
+
+
+async def main():
+    async with anyio.create_task_group() as task_group:
+        process = Process(backend, receive=print)
+        process.set_size(80, 24)
+        await process.start(task_group)
+
+
+anyio.run(main)
 ```
 
 ## Why it is a package of its own
