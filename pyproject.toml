@@ -45,6 +45,10 @@ test = [
 
 [project.urls]
 Homepage = "https://github.com/Lillecarl/ptyhost"
+Documentation = "https://lillecarl.github.io/ptyhost/"
+# Work happens in the monorepo this repository is exported from.
+Source = "https://github.com/Lillecarl/pyterm"
+Issues = "https://github.com/Lillecarl/pymux/issues"
 
 [project.scripts]
 # A recorder, not a test. A fault that only a real program shows, on the
