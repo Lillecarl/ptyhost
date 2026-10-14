@@ -1,5 +1,11 @@
 # ptyhost
 
+> This repository is a copy. Work on ptyhost happens in
+> [pyterm](https://github.com/Lillecarl/pyterm), which exports its `ptyhost/`
+> directory here on every push. Send changes there, and issues to
+> [Lillecarl/pymux](https://github.com/Lillecarl/pymux/issues).
+> `nix build github:Lillecarl/ptyhost` builds it from this repository alone.
+
 Run a program on a pty. Start it, size it, pump its bytes, record them.
 
 **No parsing, no drawing, no toolkit.** What the program writes goes to
