@@ -19,7 +19,7 @@ from typing import NamedTuple, NoReturn
 
 from .backends.posix_utils import pty_make_controlling_tty
 
-__all__ = ("Spawn", "exec_pipe", "run_in_child", "wait_for_exec")
+__all__ = ("Spawn", "at_normal_priority", "exec_pipe", "run_in_child", "wait_for_exec")
 
 
 class Spawn(NamedTuple):
@@ -95,6 +95,7 @@ def run_in_child(spawn: Spawn, master: int, slave: int, exec_end: int) -> NoRetu
 
         try:
             _close_file_descriptors(keep=exec_end)
+            at_normal_priority()
             if spawn.directory is not None:
                 with contextlib.suppress(OSError):
                     os.chdir(spawn.directory)
@@ -113,6 +114,20 @@ def run_in_child(spawn: Spawn, master: int, slave: int, exec_end: int) -> NoRetu
             time.sleep(5)
     finally:
         os._exit(1)
+
+
+def at_normal_priority() -> None:
+    """
+    Give back a raised priority, before an exec. `pymux renice` raises
+    pymux's, and a program a person runs takes none of it. A lowered
+    one stays: only root may raise it again.
+
+    On Linux a niceness is the calling thread's, which is the one that
+    execs.
+    """
+    with contextlib.suppress(OSError):
+        if os.getpriority(os.PRIO_PROCESS, 0) < 0:
+            os.setpriority(os.PRIO_PROCESS, 0, 0)
 
 
 def _close_file_descriptors(keep: int) -> None:
