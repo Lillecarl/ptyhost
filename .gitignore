@@ -1,9 +1,20 @@
+# What a build, a test run or an editor leaves in the tree. Every source
+# holds this same file: pyterm's `sync-sources` copies it from
+# `nix/shared/gitignore` there.
+
+# The links `nix build` leaves, a check's kept run among them.
+result*
+*-run
+
 __pycache__/
 *.py[cod]
+*.so
 *.egg-info/
 build/
 dist/
 .pytest_cache/
-.tox/
-# The symlinks that `nix build` leaves behind.
-result*
+.ruff_cache/
+.hypothesis/
+
+# Cargo's, in a source with Rust in it.
+target/
