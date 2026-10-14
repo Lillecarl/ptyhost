@@ -27,7 +27,7 @@ jobs:
         timeout-minutes: 10
       - uses: cachix/install-nix-action@master
         timeout-minutes: 15
-      # pymux's site holds the galleries too, which take half an hour.
+      # Only pymux's site builds the galleries, which take half an hour.
       - name: Build the site
         run: nix build --file . pages -o pages --print-build-logs
         timeout-minutes: 110
