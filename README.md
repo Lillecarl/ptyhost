@@ -4,7 +4,9 @@
 > [pyterm](https://github.com/Lillecarl/pyterm), which exports its `ptyhost/`
 > directory here on every push. Send changes there, and issues to
 > [Lillecarl/pymux](https://github.com/Lillecarl/pymux/issues).
-> `nix build github:Lillecarl/ptyhost` builds it from this repository alone.
+> The docs are at <https://lillecarl.github.io/ptyhost/>.
+
+<!-- The lines above are pyterm's nix/shared/readme-head.md, written by sync-sources. -->
 
 Run a program on a pty. Start it, size it, pump its bytes, record them.
 
@@ -26,26 +28,15 @@ process.start()
 It came out of [ptterm], which is a terminal widget for
 prompt-toolkit. A second widget for [Textual] needs the same pty layer
 and must not pull prompt-toolkit in behind it, so the layer needed a
-home that neither widget owns.
-
-The family, and the one job each name claims:
-
-| | job |
-| --- | --- |
-| `pyte` | parse, and hold a screen |
-| `ptyhost` | run a program and carry its bytes |
-| `ptterm` | draw it with prompt-toolkit |
-| `txterm` | draw it with Textual |
-| `pymux` | arrange several of them |
-
-`Lillecarl/pymux#85` holds the argument, and `#11` the four layers.
+home that neither widget owns. Lillecarl/pymux#85 holds the argument.
 
 ## What is in it
 
 - `Process` — the program: `start`, `set_size`, `write_input`,
   `suspend`, `resume`, `kill`, and what it is called and where it is.
-- `backends/` — the pty itself. `posix`, `win32` and `asyncssh`, behind
-  one `Backend` interface.
+- `backends/` — the pty itself, `posix` and `asyncssh` behind one
+  `Backend` interface. `darwin` reads a process's name and directory on
+  macOS.
 - `record.py` — `ptyhost-record`, which runs a program on a pty and
   writes down every byte it drew. A fault that only a real program
   shows can then be replayed anywhere.
@@ -61,3 +52,30 @@ The family, and the one job each name claims:
 
 [ptterm]: https://github.com/Lillecarl/ptterm
 [Textual]: https://github.com/Textualize/textual
+
+<!-- The lines below are pyterm's nix/shared/readme-tail.md, written by sync-sources. -->
+
+## Building
+
+    nix build github:Lillecarl/ptyhost    # from this repository alone
+    nix build --file . ptyhost            # in a checkout of pyterm
+
+The suites that judge it run in pyterm, as `checks.ptyhost-*`.
+
+## The collection
+
+ptyhost is one source of [pyterm](https://github.com/Lillecarl/pyterm), and
+each source claims one job:
+
+| source | job |
+| --- | --- |
+| [pyte](https://lillecarl.github.io/pyte/) | parse, and hold a screen |
+| [ptyhost](https://lillecarl.github.io/ptyhost/) | run a program on a pty, and carry its bytes |
+| [ptterm](https://lillecarl.github.io/ptterm/) | draw one terminal, with prompt-toolkit |
+| [txterm](https://lillecarl.github.io/txterm/) | draw one terminal, with Textual |
+| [pymux](https://lillecarl.github.io/pymux/) | arrange several of them |
+| [pysmithay](https://lillecarl.github.io/pysmithay/) | a headless Wayland compositor, for a GUI program in a pane |
+| [pyterm-pytest](https://lillecarl.github.io/pyterm-pytest/) | the test equipment the suites share |
+
+[pyterm's site](https://lillecarl.github.io/pyterm/) holds every source's
+docs.
