@@ -25,4 +25,5 @@ in
   inherit (pyterm) ptyhost shell;
   default = pyterm.ptyhost;
   checks = pyterm.ptyhost.checks;
+  pages = pyterm.pages.ptyhost;
 }

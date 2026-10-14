@@ -1,0 +1,57 @@
+# Deploys this repository's docs site, the one workflow a source's
+# repository runs: its tests run in pyterm. pyterm exports this file
+# with the rest of the source, so edit it there. Lillecarl/pymux#671.
+
+name: Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 10
+      - uses: cachix/install-nix-action@master
+        timeout-minutes: 15
+      # pymux's site holds the galleries too, which take half an hour.
+      - name: Build the site
+        run: nix build --file . pages -o pages --print-build-logs
+        timeout-minutes: 110
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+        timeout-minutes: 10
+      - name: Prepare the Pages artifact
+        run: |
+          mkdir public
+          cp -rL pages/* public/
+        timeout-minutes: 10
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+        timeout-minutes: 15
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+        timeout-minutes: 15

@@ -28,6 +28,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# What the docs site builds with: Sphinx, MyST for the markdown, and
+# the theme. pyterm's `nix/docs/` reads it.
+docs = ["sphinx", "myst-parser", "furo"]
 # What a check installs, beside what ptyhost itself needs. anyio used
 # to be named here for the pytest plugin that runs a coroutine test,
 # and now it arrives with the package and carries the plugin with it.
