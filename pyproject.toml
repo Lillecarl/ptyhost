@@ -69,17 +69,17 @@ packages = ["ptyhost"]
 anyio_mode = "auto"
 
 [tool.ruff]
-# Mirror of the `ruff.toml` beside the umbrella: the build sandbox
+# Mirror of the `ruff.toml` in the pyterm root: the build sandbox
 # sees only this tree, so discovery from a file under it must end
 # here. Keep the two in step; the why lives up there.
 #
-# The floor is 3.14, like the umbrella's.
+# The floor is 3.14, like the pyterm root's.
 target-version = "py314"
 # Pinned: a ruff upgrade must never silently reflow the tree.
 line-length = 120
 
 [tool.ruff.lint]
-# Mirror of the umbrella `ruff.toml`, rule for rule: the build
+# Mirror of the pyterm root's `ruff.toml`, rule for rule: the build
 # sandbox sees only this tree, so discovery from a file under it
 # must end here. Change the rules in both places. Every rule here
 # autofixes cleanly through the editor pipeline, and the gate below
