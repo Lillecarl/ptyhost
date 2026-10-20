@@ -84,6 +84,7 @@ each source claims one job:
 | [pymux](https://lillecarl.github.io/pymux/) | arrange several of them |
 | [pysmithay](https://lillecarl.github.io/pysmithay/) | a headless Wayland compositor, for a GUI program in a pane |
 | [pyterm-pytest](https://lillecarl.github.io/pyterm-pytest/) | the test equipment the suites share |
+| [deferimport](https://lillecarl.github.io/deferimport/) | make imports lazy, without a keyword |
 
 [pyterm's site](https://lillecarl.github.io/pyterm/) holds every source's
 docs.
