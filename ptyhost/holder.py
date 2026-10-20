@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import logging
 import os
 import selectors
 import signal
@@ -57,6 +58,12 @@ ORPHAN_SECONDS = 30.0
 #: How long one message may take. A server that stops reading in the
 #: middle of one is dropped rather than left to stall every other.
 MESSAGE_SECONDS = 5.0
+
+logger = logging.getLogger(__name__)
+
+#: The server's own log line, with this process named: the two write
+#: one file.
+LOG_FORMAT = "%(asctime)s %(levelname)s pymux-holder[%(process)d]: %(message)s"
 
 #: A reply carries the master of one program and never a list of them:
 #: Linux takes at most 253 fds in one message (SCM_MAX_FD). The room
@@ -198,6 +205,7 @@ class Holder:
                     self._serve(key.fileobj)  # type: ignore[arg-type]
             self._reap()
             if self.quitting:
+                logger.info("Told to quit: hanging up %d programs.", len(self.programs))
                 self._hang_up()
                 return
 
@@ -207,6 +215,7 @@ class Holder:
             elif self.programs:
                 idle_since = now
                 if now - alone_since >= ORPHAN_SECONDS:
+                    logger.warning("No server for %ds: hanging up %d programs.", ORPHAN_SECONDS, len(self.programs))
                     self._hang_up()
                     return
             elif now - idle_since >= IDLE_SECONDS:
@@ -246,6 +255,7 @@ class Holder:
         try:
             reply, carried = self._answer(server, message, fds)
         except Exception as error:
+            logger.exception("Answering %r failed.", message.get("op"))
             reply, carried = {"error": "%s: %s" % (type(error).__name__, error)}, []
         finally:
             _close_all(fds)
@@ -316,6 +326,7 @@ class Holder:
         program = _Program(self._next_id, pid, master)
         self._next_id += 1
         self.programs[program.program_id] = program
+        logger.info("Program %d is pid %d: %s", program.program_id, pid, spawn.command[0])
         return program
 
     def _release(self, program: _Program) -> None:
@@ -337,6 +348,7 @@ class Holder:
             for program in list(self.programs.values()):
                 if program.pid == pid:
                     program.status = os.waitstatus_to_exitcode(raw)
+                    logger.info("Program %d (pid %d) ended with %d.", program.program_id, pid, program.status)
                     if program.released:
                         del self.programs[program.program_id]
                     else:
@@ -446,11 +458,16 @@ def listen(path: str) -> socket.socket:
     return listener
 
 
-def _detach() -> None:
+def _detach(log: str | None) -> None:
     """
     Leave the caller and its session behind. `main` binds the socket
     first, so a caller that waits for this process to exit can connect
     at once.
+
+    **stdout and stderr go to `log`**, the server's own file, when there
+    is one. The holder is the one process whose failure ends every pane,
+    and on /dev/null its traceback reached nobody.
+    Lillecarl/pymux#558.
     """
     if os.fork() > 0:
         os._exit(0)
@@ -459,8 +476,15 @@ def _detach() -> None:
         os._exit(0)
     os.chdir("/")
     null = os.open(os.devnull, os.O_RDWR)
-    for fd in (0, 1, 2):
-        os.dup2(null, fd)
+    out = null
+    if log is not None:
+        with contextlib.suppress(OSError):
+            out = os.open(log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    os.dup2(null, 0)
+    for fd in (1, 2):
+        os.dup2(out, fd)
+    if out != null:
+        os.close(out)
     os.close(null)
 
 
@@ -468,6 +492,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="pymux-holder", description=__doc__.splitlines()[1])
     parser.add_argument("--socket", required=True, help="where servers reach this holder")
     parser.add_argument("--detach", action="store_true", help="run on, apart from the caller")
+    parser.add_argument("--log", help="the file a detached holder writes what it does to")
     args = parser.parse_args(argv)
     try:
         listener = listen(args.socket)
@@ -475,7 +500,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("pymux-holder: %s" % (error,), file=sys.stderr)
         return 1
     if args.detach:
-        _detach()
+        _detach(args.log)
+    logging.basicConfig(stream=sys.stderr, level=logging.INFO, format=LOG_FORMAT)
+    logger.info("Holding on %s.", args.socket)
     try:
         Holder(listener).run()
     finally:

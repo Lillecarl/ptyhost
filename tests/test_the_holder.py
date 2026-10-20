@@ -261,7 +261,31 @@ def test_a_detached_holder_is_reachable_once_its_starter_returns(socket_dir):
     assert reply["pid"] != started.pid
 
 
-def test_the_holder_imports_no_toolkit_and_no_anyio():
+def test_a_detached_holder_writes_what_it_does_to_its_log(socket_dir):
+    "Its stderr went to /dev/null, and its faults with it. Lillecarl/pymux#558."
+    path = str(socket_dir / "holder.sock")
+    log = socket_dir / "server.log"
+    starter = subprocess.Popen(
+        [sys.executable, "-m", "ptyhost.holder", "--socket", path, "--detach", "--log", str(log)]
+    )
+    assert starter.wait(TIMEOUT) == 0
+
+    client = HolderClient.connect(path)
+    try:
+        program, master = started(client, "print('done')")
+        os.close(master)
+        deadline = time.monotonic() + TIMEOUT
+        while "ended with" not in log.read_text():
+            assert time.monotonic() < deadline, log.read_text()
+            time.sleep(0.01)
+    finally:
+        client.quit()
+        client.close()
+
+    written = log.read_text()
+    assert "pymux-holder[" in written
+    assert "Holding on %s." % path in written
+    assert "Program %d is pid %d" % (program["id"], program["pid"]) in written
     "The small code path stays small. Lillecarl/pymux#553."
     loaded = subprocess.run(
         [sys.executable, "-c", "import sys, ptyhost.holder; print(' '.join(sorted(sys.modules)))"],
