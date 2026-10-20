@@ -70,6 +70,14 @@ class Backend(metaclass=abc.ABCMeta):
         Terminate the sub process.
         """
 
+    def hang_up(self):
+        """
+        Ask the program to end, the way closing its terminal does, and
+        terminate it if it does not. A backend with no gentler way to
+        ask than `kill` kills.
+        """
+        self.kill()
+
     @abc.abstractproperty
     def closed(self):
         """

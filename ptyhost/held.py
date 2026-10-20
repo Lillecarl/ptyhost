@@ -206,6 +206,7 @@ class HeldBackend(PosixBackend):
             # The child has its own copy now, and one here would hide the end.
             _close_all([self.slave])
             self.slave = None
+        self._task_group = task_group
         task_group.start_soon(self._pump)
         task_group.start_soon(self._write_the_rest)
         task_group.start_soon(self._reap)
@@ -215,6 +216,13 @@ class HeldBackend(PosixBackend):
             await super()._pump()
         finally:
             self._drained.set()
+
+    @property
+    def reaped(self) -> bool:
+        "The holder said how the program ended, so it has waited for it."
+        if super().reaped:
+            return True
+        return self.program_id is not None and self.holding.statuses.get(self.program_id) is not None
 
     async def _reap(self) -> None:
         """
