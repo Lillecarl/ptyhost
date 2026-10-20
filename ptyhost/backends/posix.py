@@ -26,6 +26,12 @@ __all__ = ["PosixBackend", "spawn_of"]
 #: the foreground process group stays the same.
 _NAME_KEPT_FOR = 0.25
 
+#: How long a program sent SIGHUP by `hang_up` has to end, in seconds,
+#: before it is sent SIGKILL. A shell writes its history in that time; a
+#: program that ignores SIGHUP would otherwise run on with no pane to
+#: show it.
+GRACE = 5.0
+
 
 def spawn_of(
     command: list[str],
@@ -81,6 +87,7 @@ class PosixBackend(Backend):
         "_more_to_write": "rebuilt",
         "_name_kept": "dropped",
         "returncode": "dropped",  # the program is running, so there is none
+        "_task_group": "dropped",  # the next server's `start` names its own
     }
 
     def __init__(self, spawn: Callable[[], Spawn] | None, cell=(0, 0), pty: tuple[int, int | None] | None = None):
@@ -127,6 +134,10 @@ class PosixBackend(Backend):
         #: signal. None while it runs, and for a program another server
         #: reaped.
         self.returncode: int | None = None
+
+        #: The group that watches the program, which `hang_up` starts
+        #: the SIGKILL that follows its SIGHUP in.
+        self._task_group: anyio.abc.TaskGroup | None = None
 
     def add_input_ready_callback(self, callback):
         self._input_ready_callbacks.append(callback)
@@ -291,6 +302,7 @@ class PosixBackend(Backend):
             # waits for it to end. Both are tasks of the caller's
             # group, so this returns once they are started and the
             # scope owns them.
+            self._task_group = task_group
             task_group.start_soon(self._pump)
             task_group.start_soon(self._write_the_rest)
             task_group.start_soon(self._reap)
@@ -299,11 +311,49 @@ class PosixBackend(Backend):
         "Terminate process."
         self.send_signal(signal.SIGKILL)
 
+    def hang_up(self):
+        """
+        Send the program SIGHUP, and SIGKILL if it is still there
+        `GRACE` seconds later.
+
+        **SIGHUP is what closing a terminal says**, and a shell answers
+        it by writing its history and hanging up its jobs. SIGKILL gives
+        it no chance to: a pane killed that way lost the line that
+        killed it from the history. tmux ends a pane's program with
+        SIGHUP too.
+
+        The SIGKILL that follows is a task of the group that watches the
+        program, so a scope that goes first takes it along, and the
+        reaper's own kill covers the program then.
+        """
+        if self.reaped:
+            return
+        self.send_signal(signal.SIGHUP)
+        if self._task_group is not None:
+            self._task_group.start_soon(self._kill_after_grace)
+
+    async def _kill_after_grace(self) -> None:
+        "SIGKILL the program unless the reap says it ended within `GRACE`."
+        with anyio.move_on_after(GRACE):
+            await self.ready_f.wait()
+        self.send_signal(signal.SIGKILL)
+
+    @property
+    def reaped(self) -> bool:
+        """
+        Has the program been waited for?
+
+        **A reaped pid is not the program's any more.** The system may
+        have given the number to another process, so nothing signals it
+        from here on.
+        """
+        return self.returncode is not None or self.ready_f.is_set()
+
     def send_signal(self, signal):
         "Send signal to running process."
         assert isinstance(signal, int), type(signal)
 
-        if self.pid and not self.closed:
+        if self.pid and not self.reaped:
             # [Errno 3] No such process.
             with contextlib.suppress(OSError):
                 os.kill(self.pid, signal)

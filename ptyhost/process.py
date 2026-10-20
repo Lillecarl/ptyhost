@@ -301,6 +301,13 @@ class Process:
         """
         self.backend.kill()
 
+    def hang_up(self) -> None:
+        """
+        Send the program SIGHUP, and SIGKILL if it stays: a pane that
+        a person closes. A shell writes its history on the way out.
+        """
+        self.backend.hang_up()
+
     @property
     def is_terminated(self) -> bool:
         return self.backend.closed
