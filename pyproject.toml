@@ -165,6 +165,10 @@ line-length = 120
 # `pairwise`, RUF015 takes the first with `next`, RUF036 moves
 # `None` to the end of the union.
 #
+# ASYNC220, ASYNC221 and ASYNC222 refuse the blocking `subprocess`
+# calls in async code: `anyio.open_process` and `anyio.run_process`
+# instead. They have no autofix.
+#
 # Later, by hand, one family per commit: RET503 and RET504 spell
 # the bare return out; F841 drops the dead stores (two `process`
 # reads need eyes first); RUF012 annotates the class constants or
@@ -198,6 +202,9 @@ line-length = 120
 # share defaults safely), PLW1641 (one design question, no guard
 # value).
 select = [
+    "ASYNC220",
+    "ASYNC221",
+    "ASYNC222",
     "B007",
     "B009",
     "B010",
