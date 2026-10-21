@@ -134,8 +134,14 @@ class Holding:
         return reply["programs"]
 
     async def master(self, program_id: int) -> int:
-        _, fds = await self.request({"op": "master", "id": program_id})
+        """
+        A copy of the program's master. A program that ended while no
+        server was told says so here: its exit went to the server before.
+        """
+        reply, fds = await self.request({"op": "master", "id": program_id})
         (master,) = fds
+        if reply.get("status") is not None:
+            self._end(program_id, reply["status"])
         return master
 
     async def release(self, program_id: int) -> None:

@@ -194,6 +194,33 @@ async def test_a_reply_nobody_waits_for_answers_no_one_else():
         theirs.close()
 
 
+async def test_an_exit_the_master_reports_ends_the_wait():
+    """
+    A program that ended before this server connected sent its exit to
+    the server before. The master's reply carries it, and nothing else
+    will. Lillecarl/pymux#556.
+    """
+    ours, theirs = socket.socketpair()
+    holding = Holding(ours)
+    read_end, write_end = os.pipe()
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(holding.run)
+
+        async def answer() -> None:
+            await anyio.to_thread.run_sync(receive, theirs)
+            send(theirs, {"id": 3, "pid": 1, "status": 7}, [read_end])
+
+        task_group.start_soon(answer)
+        with anyio.fail_after(TIMEOUT):
+            os.close(await holding.master(3))
+            assert await holding.ended(3) == 7
+
+        holding.close()
+        theirs.close()
+    os.close(read_end)
+    os.close(write_end)
+
+
 async def test_a_holder_that_stops_reading_holds_no_loop(monkeypatch):
     """
     A send that the holder never reads fills the socket. It waits on a
