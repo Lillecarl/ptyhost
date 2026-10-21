@@ -32,10 +32,13 @@ __all__ = ("HeldBackend", "Holding", "backend_of")
 class Holding:
     "One server's connection to its holder. `run` must run while it is used."
 
-    def __init__(self, sock: socket.socket) -> None:
+    def __init__(self, sock: socket.socket, ops: frozenset[str] = frozenset()) -> None:
         # The reader waits for as long as the holder is quiet.
         sock.settimeout(None)
         self.sock = sock
+        #: What the holder said it answers. A holder older than the list
+        #: names nothing, and still answers what version 1 had.
+        self.ops = ops
         self._lock = anyio.Lock()
         self._reply: tuple[dict[str, Any], list[int]] | None = None
         self._replied = anyio.Event()
@@ -51,7 +54,7 @@ class Holding:
     @classmethod
     async def connect(cls, path: str) -> Holding:
         client = await anyio.to_thread.run_sync(HolderClient.connect, path)
-        return cls(client.sock)
+        return cls(client.sock, client.ops)
 
     async def run(self) -> None:
         "Read the holder until it goes away."
@@ -128,6 +131,21 @@ class Holding:
     async def spawn(self, spawn: Spawn, master: int, slave: int) -> dict[str, Any]:
         reply, _ = await self.request(spawn_request(spawn), [master, slave])
         return reply
+
+    async def spawn_on_pipes(self, spawn: Spawn) -> tuple[dict[str, Any], int, int]:
+        "Start a program with no terminal. The read ends of its stdout and stderr come back."
+        reply, fds = await self.request({**spawn_request(spawn), "op": "spawn-pipes"})
+        if len(fds) != 2:
+            _close_all(fds)
+            raise HolderError("a spawn on pipes came back with %d fds" % (len(fds),))
+        return reply, fds[0], fds[1]
+
+    async def fds(self, program_id: int) -> list[int]:
+        "Copies of what the holder keeps of a program, recording an exit it reports, as `master` does."
+        reply, fds = await self.request({"op": "fds", "id": program_id})
+        if reply.get("status") is not None:
+            self._end(program_id, reply["status"])
+        return fds
 
     async def programs(self) -> list[dict[str, Any]]:
         reply, _ = await self.request({"op": "programs"})

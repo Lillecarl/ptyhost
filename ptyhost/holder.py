@@ -37,13 +37,20 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from .spawn import Spawn, exec_pipe, run_in_child, wait_for_exec
+from .spawn import Spawn, exec_failure, exec_pipe, run_in_child, run_on_pipes, wait_for_exec
 
-__all__ = ("VERSION", "HolderClient", "HolderError", "main", "receive", "send", "spawn_request")
+__all__ = ("OPS", "VERSION", "HolderClient", "HolderError", "main", "receive", "send", "spawn_request")
 
 #: Bumped when a message changes. A newer server meets an older holder
 #: after every upgrade, so the first message says which one it speaks.
+#: **A new op is not a change**: the hello names the ops, and a holder
+#: older than one answers it with an error. Bumping this would turn
+#: every running holder away, and the panes of its server with it.
 VERSION = 1
+
+#: What this holder answers. A holder from before this list names none,
+#: and answers the ops of version 1.
+OPS = ("spawn", "spawn-pipes", "programs", "master", "fds", "release", "quit")
 
 #: How long a holder with no program and no server waits before it exits.
 IDLE_SECONDS = 5.0
@@ -65,9 +72,10 @@ logger = logging.getLogger(__name__)
 #: one file.
 LOG_FORMAT = "%(asctime)s %(levelname)s pymux-holder[%(process)d]: %(message)s"
 
-#: A reply carries the master of one program and never a list of them:
-#: Linux takes at most 253 fds in one message (SCM_MAX_FD). The room
-#: past one catches a peer that sends more, so that they get closed.
+#: A message carries the fds of one program and never of a list of them:
+#: Linux takes at most 253 fds in one message (SCM_MAX_FD). A pty's two
+#: ends or a job's two pipes; the room past two catches a peer that
+#: sends more, so that they get closed.
 MAX_FDS = 4
 
 MAX_MESSAGE = 1 << 20
@@ -153,19 +161,35 @@ def _close_all(fds: Sequence[int]) -> None:
 
 
 class _Program:
-    __slots__ = ("master", "pid", "program_id", "released", "status")
+    __slots__ = ("fds", "on_pipes", "pid", "program_id", "released", "status")
 
-    def __init__(self, program_id: int, pid: int, master: int) -> None:
+    def __init__(self, program_id: int, pid: int, fds: list[int], on_pipes: bool = False) -> None:
         self.program_id = program_id
         self.pid = pid
-        self.master: int | None = master
+        #: The master of its pty, or the read ends of its stdout and
+        #: stderr. Empty once hung up.
+        self.fds = fds
+        #: A program with no terminal, in a session of its own.
+        self.on_pipes = on_pipes
         #: The exit code once reaped, as `os.waitstatus_to_exitcode` says it.
         self.status: int | None = None
         #: A server let it go. It stays until the child is reaped.
         self.released = False
 
     def describe(self) -> dict[str, Any]:
-        return {"id": self.program_id, "pid": self.pid, "status": self.status}
+        return {"id": self.program_id, "pid": self.pid, "status": self.status, "pipes": self.on_pipes}
+
+    def hang_up(self) -> None:
+        """
+        Close what the holder keeps. The kernel hangs up a pty's program
+        when its master closes; a program on pipes hears nothing until
+        it writes, so its group gets the SIGHUP a terminal would send.
+        """
+        _close_all(self.fds)
+        self.fds = []
+        if self.on_pipes and self.status is None:
+            with contextlib.suppress(OSError):
+                os.killpg(self.pid, signal.SIGHUP)
 
 
 class Holder:
@@ -222,11 +246,9 @@ class Holder:
                 return
 
     def _hang_up(self) -> None:
-        "Close every master. The kernel hangs up each program's terminal."
+        "Hang up every program."
         for program in self.programs.values():
-            if program.master is not None:
-                os.close(program.master)
-                program.master = None
+            program.hang_up()
 
     def _accept(self) -> None:
         with contextlib.suppress(BlockingIOError):
@@ -272,11 +294,14 @@ class Holder:
             if message.get("version") != VERSION:
                 return {"error": "this holder speaks version %d" % (VERSION,), "version": VERSION}, []
             self.servers[server] = True
-            return {"version": VERSION, "pid": os.getpid()}, []
+            return {"version": VERSION, "pid": os.getpid(), "ops": list(OPS)}, []
         if not self.servers[server]:
             return {"error": "say hello first"}, []
         if op == "spawn":
             return self._spawn(message, fds).describe(), []
+        if op == "spawn-pipes":
+            program = self._spawn_on_pipes(message, fds)
+            return program.describe(), list(program.fds)
         if op == "quit":
             self.quitting = True
             return {}, []
@@ -286,8 +311,11 @@ class Holder:
         if program is None or program.released:
             return {"error": "no program %r" % (message.get("id"),)}, []
         if op == "master":
-            assert program.master is not None
-            return program.describe(), [program.master]
+            if program.on_pipes or not program.fds:
+                return {"error": "program %d has no terminal" % (program.program_id,)}, []
+            return program.describe(), [program.fds[0]]
+        if op == "fds":
+            return program.describe(), list(program.fds)
         if op == "release":
             self._release(program)
             return {}, []
@@ -323,7 +351,42 @@ class Holder:
         # pane whose foreground is still this fork. An exec takes
         # milliseconds, and a failed one closes the pipe first.
         wait_for_exec(read_end)
-        program = _Program(self._next_id, pid, master)
+        return self._keep(pid, [master], spawn)
+
+    def _spawn_on_pipes(self, message: dict[str, Any], fds: list[int]) -> _Program:
+        """
+        Fork a program with no terminal: nothing on stdin, a pipe each
+        for stdout and stderr. The holder keeps the read ends, and the
+        reply hands copies over, so the bytes wait in the pipes for
+        whichever server reads next. A child that cannot start says why,
+        and the reply is that error.
+        """
+        if fds:
+            raise HolderError("a spawn on pipes carries no fds, not %d" % (len(fds),))
+        spawn = Spawn(list(message["command"]), dict(message["environment"]), message.get("directory"))
+        made: list[int] = []
+        try:
+            for _ in range(3):
+                made.extend(os.pipe())
+            pid = os.fork()
+        except BaseException:
+            _close_all(made)
+            raise
+        out_read, out_write, err_read, err_write, read_end, exec_end = made
+        if pid == 0:
+            _close_all([out_read, err_read, read_end])
+            run_on_pipes(spawn, out_write, err_write, exec_end)
+        _close_all([out_write, err_write, exec_end])
+        failure = exec_failure(read_end)
+        if failure is not None:
+            # The child exits at once, and `_reap` waits for a pid it
+            # does not know without a word.
+            _close_all([out_read, err_read])
+            raise HolderError(failure)
+        return self._keep(pid, [out_read, err_read], spawn, on_pipes=True)
+
+    def _keep(self, pid: int, fds: list[int], spawn: Spawn, on_pipes: bool = False) -> _Program:
+        program = _Program(self._next_id, pid, fds, on_pipes)
         self._next_id += 1
         self.programs[program.program_id] = program
         logger.info("Program %d is pid %d: %s", program.program_id, pid, spawn.command[0])
@@ -331,9 +394,7 @@ class Holder:
 
     def _release(self, program: _Program) -> None:
         program.released = True
-        if program.master is not None:
-            os.close(program.master)
-            program.master = None
+        program.hang_up()
         if program.status is not None:
             del self.programs[program.program_id]
 
@@ -370,6 +431,8 @@ class HolderClient:
         self.sock = sock
         #: Events that arrived while a reply was awaited, oldest first.
         self.events: list[dict[str, Any]] = []
+        #: What the holder answers. One from before `OPS` names nothing.
+        self.ops: frozenset[str] = frozenset()
 
     @classmethod
     def connect(cls, path: str, timeout: float = MESSAGE_SECONDS) -> HolderClient:
@@ -378,7 +441,8 @@ class HolderClient:
         try:
             sock.connect(path)
             client = cls(sock)
-            client.request({"op": "hello", "version": VERSION})
+            hello, _ = client.request({"op": "hello", "version": VERSION})
+            client.ops = frozenset(hello.get("ops", ()))
         except BaseException:
             sock.close()
             raise

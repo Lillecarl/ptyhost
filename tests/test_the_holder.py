@@ -111,7 +111,7 @@ def test_an_exit_with_no_server_attached_is_kept_for_the_next(holder):
         assert time.monotonic() < deadline, listed
         time.sleep(0.01)
 
-    assert listed == [{"id": program["id"], "pid": program["pid"], "status": 3}]
+    assert listed == [{"id": program["id"], "pid": program["pid"], "status": 3, "pipes": False}]
 
 
 def test_a_server_hears_of_an_exit(holder):
@@ -122,7 +122,13 @@ def test_a_server_hears_of_an_exit(holder):
 
     os.write(master, b"exit 5\n")
 
-    assert client.next_event() == {"event": "exited", "id": program["id"], "pid": program["pid"], "status": 5}
+    assert client.next_event() == {
+        "event": "exited",
+        "id": program["id"],
+        "pid": program["pid"],
+        "status": 5,
+        "pipes": False,
+    }
 
 
 def test_a_released_program_is_forgotten(holder):
@@ -167,6 +173,105 @@ def test_quit_hangs_up_every_program_and_ends_the_holder(holder):
     assert process.wait(TIMEOUT) == 0
     deadline = time.monotonic() + TIMEOUT
     while _alive(program["pid"]):
+        assert time.monotonic() < deadline, "the program outlived its holder"
+        time.sleep(0.01)
+
+
+def on_pipes(client: HolderClient, program: str, directory: str | None = None) -> tuple[dict, int, int]:
+    "A python program with no terminal: the reply, and the read ends of its stdout and stderr."
+    reply, fds = client.request(
+        {
+            "op": "spawn-pipes",
+            "command": [sys.executable, "-c", program],
+            "environment": dict(os.environ),
+            "directory": directory,
+        }
+    )
+    out, err = fds
+    return reply, out, err
+
+
+def all_of(fd: int) -> bytes:
+    "Everything a pipe gives until its end."
+    seen = b""
+    deadline = time.monotonic() + TIMEOUT
+    while select.select([fd], [], [], max(0.0, deadline - time.monotonic()))[0]:
+        chunk = os.read(fd, 4096)
+        if not chunk:
+            return seen
+        seen += chunk
+    raise AssertionError("the pipe never ended; it gave %r" % (seen,))
+
+
+def test_the_hello_names_what_the_holder_answers(holder):
+    "A new op is no new version: a server reads the list. Lillecarl/pymux#556."
+    path, _ = holder
+    assert "spawn-pipes" in HolderClient.connect(path).ops
+
+
+def test_a_program_on_pipes_keeps_its_streams_apart(holder):
+    "A job's shape: nothing on stdin, stdout and stderr each a pipe. Lillecarl/pymux#556."
+    path, _ = holder
+    client = HolderClient.connect(path)
+    program = (
+        "import os, sys; print('out', sys.stdin.read() == '', os.isatty(1)); print('err', file=sys.stderr); sys.exit(4)"
+    )
+    reply, out, err = on_pipes(client, program)
+
+    assert (all_of(out), all_of(err)) == (b"out True False\n", b"err\n")
+    assert client.next_event() == {
+        "event": "exited",
+        "id": reply["id"],
+        "pid": reply["pid"],
+        "status": 4,
+        "pipes": True,
+    }
+
+
+def test_what_a_program_on_pipes_writes_waits_for_the_next_server(holder):
+    "The holder keeps the read ends, so nothing is lost between two servers."
+    path, _ = holder
+    first = HolderClient.connect(path)
+    reply, out, err = on_pipes(first, "import time; print('before', flush=True); time.sleep(60)")
+    first.close()
+    os.close(out)
+    os.close(err)
+
+    second = HolderClient.connect(path)
+    out, err = second.request({"op": "fds", "id": reply["id"]})[1]
+    try:
+        assert until(out, "before") == "before\n"
+        with pytest.raises(HolderError, match="no terminal"):
+            second.master(reply["id"])
+    finally:
+        second.quit()
+        os.close(out)
+        os.close(err)
+
+
+def test_a_program_on_pipes_that_cannot_start_says_why(holder):
+    path, _ = holder
+    client = HolderClient.connect(path)
+
+    with pytest.raises(HolderError, match="No such file"):
+        on_pipes(client, "pass", directory="/no-such-directory")
+    assert client.programs() == []
+
+
+def test_quit_hangs_up_a_program_on_pipes(holder):
+    "No terminal hangs it up, so the holder sends the SIGHUP one would."
+    path, process = holder
+    client = HolderClient.connect(path)
+    reply, out, err = on_pipes(client, "import time; print('up', flush=True); time.sleep(60)")
+    until(out, "up")
+    os.close(out)
+    os.close(err)
+
+    client.quit()
+
+    assert process.wait(TIMEOUT) == 0
+    deadline = time.monotonic() + TIMEOUT
+    while _alive(reply["pid"]):
         assert time.monotonic() < deadline, "the program outlived its holder"
         time.sleep(0.01)
 

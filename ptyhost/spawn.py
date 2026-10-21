@@ -19,7 +19,15 @@ from typing import NamedTuple, NoReturn
 
 from .backends.posix_utils import pty_make_controlling_tty
 
-__all__ = ("Spawn", "at_normal_priority", "exec_pipe", "run_in_child", "wait_for_exec")
+__all__ = (
+    "Spawn",
+    "at_normal_priority",
+    "exec_failure",
+    "exec_pipe",
+    "run_in_child",
+    "run_on_pipes",
+    "wait_for_exec",
+)
 
 
 class Spawn(NamedTuple):
@@ -114,6 +122,58 @@ def run_in_child(spawn: Spawn, master: int, slave: int, exec_end: int) -> NoRetu
             time.sleep(5)
     finally:
         os._exit(1)
+
+
+def exec_failure(read_end: int, seconds: float = EXEC_SECONDS) -> str | None:
+    """
+    Why the child that holds the other end could not exec, or None once
+    it has. `run_on_pipes` writes the reason before it exits; an exec
+    closes the end with nothing written.
+    """
+    said = b""
+    deadline = time.monotonic() + seconds
+    try:
+        with selectors.DefaultSelector() as waiting:
+            waiting.register(read_end, selectors.EVENT_READ)
+            while (left := deadline - time.monotonic()) > 0 and waiting.select(left):
+                chunk = os.read(read_end, 4096)
+                if not chunk:
+                    break
+                said += chunk
+    finally:
+        os.close(read_end)
+    return said.decode(errors="replace") if said else None
+
+
+def run_on_pipes(spawn: Spawn, stdout: int, stderr: int, exec_end: int) -> NoReturn:
+    """
+    The child's half of a fork for a program with no terminal: nothing
+    on stdin, `stdout` and `stderr` the write ends of two pipes, and a
+    session of its own, so a hang-up reaches the whole group.
+
+    A directory that is gone, or an exec that fails, writes its reason
+    on `exec_end` for `exec_failure`: no terminal shows it here.
+    """
+    # **Nothing raised here may leave this function**, as in `run_in_child`.
+    try:
+        try:
+            signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGWINCH})
+            os.setsid()
+            null = os.open(os.devnull, os.O_RDONLY)
+            os.dup2(null, 0)
+            os.dup2(stdout, 1)
+            os.dup2(stderr, 2)
+            _close_file_descriptors(keep=exec_end)
+            at_normal_priority()
+            if spawn.directory is not None:
+                os.chdir(spawn.directory)
+            os.execvpe(spawn.command[0], spawn.command, spawn.environment)
+        except BaseException as error:
+            with contextlib.suppress(OSError):
+                os.write(exec_end, ("%s" % (error,)).encode(errors="replace") or b"failed")
+    finally:
+        os._exit(127)
 
 
 def at_normal_priority() -> None:
