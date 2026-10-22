@@ -13,12 +13,7 @@ from __future__ import annotations
 
 import faulthandler
 import os
-import pathlib
-import shutil
-import subprocess
 import sys
-import tempfile
-import time
 
 import pytest
 
@@ -37,42 +32,6 @@ def pytest_configure(config):
     except AttributeError, ValueError, OSError:
         fileno = sys.__stderr__.fileno()
     _stacks_go_to = os.dup(fileno)
-
-
-@pytest.fixture
-def socket_dir(tmp_path):
-    """
-    A directory whose sockets have short enough names.
-
-    macOS takes 104 bytes for a socket's path, and its build sandbox puts
-    `tmp_path` past that. /tmp is short everywhere it can be written.
-    """
-    try:
-        path = tempfile.mkdtemp(prefix="ph", dir="/tmp")
-    except OSError:
-        yield tmp_path
-        return
-    try:
-        yield pathlib.Path(path)
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
-
-
-@pytest.fixture
-def holder(socket_dir):
-    "A holder (`ptyhost.holder`) in the foreground, and the path of its socket."
-    path = str(socket_dir / "holder.sock")
-    process = subprocess.Popen([sys.executable, "-m", "ptyhost.holder", "--socket", path])
-    deadline = time.monotonic() + 5.0
-    while not os.path.exists(path):
-        assert process.poll() is None, "the holder ended at start"
-        assert time.monotonic() < deadline, "the holder never bound its socket"
-        time.sleep(0.01)
-    try:
-        yield path, process
-    finally:
-        process.kill()
-        process.wait()
 
 
 @pytest.hookimpl(hookwrapper=True)

@@ -16,8 +16,8 @@ __all__ = ("Process",)
 
 
 def __getattr__(name: str):
-    # Not imported eagerly: `ptyhost.holder` runs on the standard
-    # library alone, and `Process` brings anyio. Lillecarl/pymux#553.
+    # Not imported eagerly: `ptyhost.spawn` runs in a forked child on
+    # the standard library alone, and `Process` brings anyio.
     if name == "Process":
         from .process import Process
 

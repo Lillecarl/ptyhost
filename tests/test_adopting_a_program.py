@@ -3,36 +3,71 @@ A program that runs already, adopted on its master and its pid.
 
 An upgrade execs the new build in the server's own process, so every
 program stays its child, and the new image adopts it from the snapshot.
-The one move from the holder takes programs this process never forked.
-Lillecarl/pymux#736.
+A program the server is not the parent of still runs: Carl's panes of
+2026-10-22 were forked by the holder that is gone. Lillecarl/pymux#736.
 """
 
 from __future__ import annotations
 
 import os
-import signal
 import sys
 
 import anyio
 import pytest
-from test_a_held_program import ECHO, TIMEOUT, until
 
 from ptyhost import Process
-from ptyhost.backends.posix import PosixBackend, spawn_of
-from ptyhost.held import HeldBackend, Holding
+from ptyhost.backends.posix import PosixBackend
 from ptyhost.spawn import Spawn, exec_pipe, fork_on_pipes, run_in_child, wait_for_exec
 
+#: How long a test may wait for a program, in seconds.
+TIMEOUT = 5.0
+TICK = 0.01
 
-def _fork(program: str) -> tuple[int, int]:
-    "A child on a pty of its own, forked as a server forks a pane: its pid and its master."
+#: Echoes each line it reads, marked, until it reads "exit N".
+ECHO = (
+    "import sys\n"
+    "print('READY', flush=True)\n"
+    "for line in sys.stdin:\n"
+    "    if line.startswith('exit '):\n"
+    "        sys.exit(int(line.split()[1]))\n"
+    "    print('<' + line.strip() + '>', flush=True)\n"
+)
+
+
+async def until(said, text: str) -> None:
+    try:
+        with anyio.fail_after(TIMEOUT):
+            while text not in "".join(said):
+                await anyio.sleep(TICK)
+    except TimeoutError:
+        raise AssertionError("waited for %r; the program wrote %r" % (text, "".join(said)))
+
+
+def fork_on_a_pty(program: str, orphan: bool = False) -> tuple[int, int]:
+    """
+    A child on a pty of its own, forked as a server forks a pane: its pid
+    and its master. An `orphan` is forked by a child that ends at once,
+    so this process is not its parent.
+    """
     master, slave = os.openpty()
     read_end, exec_end = exec_pipe()
+    pid_read, pid_write = os.pipe()
     pid = os.fork()
     if pid == 0:
         os.close(read_end)
+        os.close(pid_read)
+        if orphan and (grandchild := os.fork()):
+            os.write(pid_write, b"%d" % grandchild)
+            os._exit(0)
+        os.close(pid_write)
         run_in_child(Spawn([sys.executable, "-c", program], dict(os.environ)), master, slave, exec_end)
     os.close(exec_end)
     os.close(slave)
+    os.close(pid_write)
+    if orphan:
+        os.waitpid(pid, 0)
+        pid = int(os.read(pid_read, 32))
+    os.close(pid_read)
     wait_for_exec(read_end)
     return pid, master
 
@@ -45,7 +80,7 @@ async def _adopted(master: int, pid: int, parent: bool, said, ended, task_group)
 
 
 async def test_an_adopted_child_talks_and_ends_with_its_code():
-    pid, master = _fork(ECHO)
+    pid, master = fork_on_a_pty(ECHO)
     said: list[str] = []
     ended = anyio.Event()
     async with anyio.create_task_group() as task_group:
@@ -61,7 +96,7 @@ async def test_an_adopted_child_talks_and_ends_with_its_code():
 
 async def test_a_child_that_ended_before_the_adoption_ends_at_once():
     "It ended during the exec: a zombie of the new image, reaped before any thread waits."
-    pid, master = _fork("print('last words', flush=True)\nraise SystemExit(5)\n")
+    pid, master = fork_on_a_pty("print('last words', flush=True)\nraise SystemExit(5)\n")
     # Ended, and left unreaped.
     with anyio.fail_after(TIMEOUT):
         await anyio.to_thread.run_sync(os.waitid, os.P_PID, pid, os.WEXITED | os.WNOWAIT)
@@ -75,29 +110,13 @@ async def test_a_child_that_ended_before_the_adoption_ends_at_once():
     assert process.backend.returncode == 5
 
 
-async def test_a_program_of_a_holder_that_is_gone_lives_on_under_its_adopter(holder):
-    """
-    The one move from the holder: copies of the masters, then SIGTERM,
-    which ends the holder and none of its programs. They are not this
-    process's children, so their end is seen and their code is not.
-    """
-    path, holder_process = holder
-    holding = await Holding.connect(path)
+async def test_a_program_of_another_parent_lives_on_under_its_adopter():
+    "Not this process's child, so its end is seen and its code is not."
+    pid, master = fork_on_a_pty(ECHO, orphan=True)
     said: list[str] = []
     ended = anyio.Event()
     async with anyio.create_task_group() as task_group:
-        task_group.start_soon(holding.run)
-        held = HeldBackend(holding, spawn_of([sys.executable, "-c", ECHO]))
-        held.set_size(80, 24)
-        reply = await holding.spawn(held.spawn(), held.master, held.slave)
-        os.close(held.slave)
-        os.close(held.master)
-        master = await holding.master(reply["id"])
-        holding.close()
-        holder_process.send_signal(signal.SIGTERM)
-        holder_process.wait(TIMEOUT)
-
-        process = await _adopted(master, reply["pid"], False, said, ended, task_group)
+        process = await _adopted(master, pid, False, said, ended, task_group)
         await until(said, "READY")
         process.write_input("ping\n")
         await until(said, "<ping>")

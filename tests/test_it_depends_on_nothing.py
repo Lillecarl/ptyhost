@@ -119,8 +119,7 @@ _STANDARD_LIBRARY = {
     "pwd",
     "resource",
     "select",
-    # The holder's loop and the socket servers reach it on.
-    # Lillecarl/pymux#553.
+    # The wait for a child's exec, past fd 1024.
     "selectors",
     "shutil",
     "signal",

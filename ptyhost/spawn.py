@@ -1,9 +1,6 @@
 """
 What a child needs to start, and what it does between the fork and the
 exec.
-
-Standard library only: the holder (`ptyhost.holder`) forks through
-this too, and it imports nothing it does not need. Lillecarl/pymux#553.
 """
 
 from __future__ import annotations
@@ -61,14 +58,14 @@ def exec_pipe() -> tuple[int, int]:
 
 #: How long a spawn waits for its child's exec. An exec takes
 #: milliseconds; this bounds a child stuck before it -- a `chdir` into a
-#: hung mount -- so the holder's one loop does not stop with it.
+#: hung mount -- so the server's loop does not stop with it.
 EXEC_SECONDS = 5.0
 
 
 def wait_for_exec(read_end: int, seconds: float = EXEC_SECONDS) -> None:
     "Block until the child that holds the other end has exec'd or gone, or `seconds` pass."
     # A selector and not `select.select`, which refuses an fd past 1024,
-    # and a holder of many panes holds that many.
+    # and a server of many panes holds that many.
     try:
         with selectors.DefaultSelector() as waiting:
             waiting.register(read_end, selectors.EVENT_READ)
@@ -85,7 +82,7 @@ def run_in_child(spawn: Spawn, master: int, slave: int, exec_end: int) -> NoRetu
     `exec_end` is the write end of an `exec_pipe`, closed by the exec.
     """
     # **Nothing raised here may leave this function.** The caller's
-    # stack is the holder's loop or the server's, and a child that
+    # stack is the server's loop, and a child that
     # returns into it runs a second copy of that process.
     try:
         try:

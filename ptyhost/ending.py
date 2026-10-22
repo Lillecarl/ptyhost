@@ -1,7 +1,7 @@
 """
 Say in the log which signal ended this process. Lillecarl/pymux#728.
 
-A server or holder that a signal ends wrote nothing about it: the log
+A server that a signal ends wrote nothing about it: the log
 stopped, and only an empty stack file said it was no crash. Now each
 writes "Ended by SIGTERM." and then dies of that same signal, so what
 waits for it sees the same end as before. SIGKILL cannot be caught,
@@ -9,7 +9,7 @@ so a log that stops with no such line is SIGKILL, or a power cut.
 
 **Not who sent it.** Only `sigwaitinfo` sees the sender, and it needs
 the signal blocked in every thread. A blocked mask survives `exec`, so
-every pane program the holder or the server starts would then ignore
+every pane program the server starts would then ignore
 SIGTERM and SIGHUP, and a closed terminal would no longer hang up its
 shell.
 """

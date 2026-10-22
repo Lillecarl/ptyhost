@@ -1,7 +1,7 @@
 """
-What a server checks and keeps when it takes a pty over from the holder.
+What a server checks and keeps when it takes a pty over.
 
-A number is only what the holder handed over, and a wrong one would send
+A number is only what the snapshot names, and a wrong one would send
 a pane's keystrokes into some other file. Lillecarl/pymux#399,
 Lillecarl/pymux#553.
 """

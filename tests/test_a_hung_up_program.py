@@ -19,12 +19,12 @@ import time
 
 import anyio
 import pytest
+from test_adopting_a_program import fork_on_a_pty
 from test_running_a_program import until
 
 from ptyhost import Process
 from ptyhost.backends import posix
 from ptyhost.backends.posix import PosixBackend, spawn_of
-from ptyhost.held import HeldBackend, Holding
 
 #: How long a test may wait for a program to end, in seconds.
 TIMEOUT = 5.0
@@ -123,18 +123,18 @@ async def test_a_reaped_program_is_never_signalled(monkeypatch):
     assert sent == []
 
 
-async def test_a_held_program_that_ignores_sighup_is_killed_too(holder, monkeypatch):
-    "The holder reaps it, and the server still insists after the grace."
+async def test_an_adopted_program_of_another_parent_that_ignores_sighup_is_killed_too(monkeypatch):
+    "Another process reaps it, and the server still insists after the grace."
     monkeypatch.setattr(posix, "GRACE", 0.5)
-    path, _ = holder
-    holding = await Holding.connect(path)
+    pid, master = fork_on_a_pty(IGNORES, orphan=True)
     said: list[str] = []
     async with anyio.create_task_group() as task_group:
-        task_group.start_soon(holding.run)
-        backend = HeldBackend(holding, spawn_of([sys.executable, "-c", IGNORES]))
-        process = await started(backend, said, task_group=task_group)
+        process = await started(PosixBackend.adopt(master, pid, parent=False), said, task_group=task_group)
         await until(said, "READY")
+        hung_up_at = time.monotonic()
         process.hang_up()
         await ended(process)
-        assert holding.statuses == {backend.program_id: -signal.SIGKILL}
-        holding.close()
+        took = time.monotonic() - hung_up_at
+
+    # It ignores SIGHUP, so only the SIGKILL after the grace ended it.
+    assert took >= 0.5

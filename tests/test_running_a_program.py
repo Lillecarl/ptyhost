@@ -408,8 +408,7 @@ async def test_a_started_program_has_already_exec_d():
 def test_a_child_that_cannot_take_its_pty_never_returns():
     """
     A failure before the exec ends the child where it is. Returned into
-    its caller, a child of the holder would run a second holder, and
-    one of the server a second server. A pipe is no terminal, so
+    its caller, a child of the server would run a second server. A pipe is no terminal, so
     taking it as the controlling one fails.
     """
     read_end, exec_end = exec_pipe()

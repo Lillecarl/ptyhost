@@ -114,9 +114,8 @@ class PosixBackend(Backend):
     """
 
     #: What a hot upgrade does with each attribute, as `Process.KEEP`
-    #: says. Each server gets its own copy of the master from the holder
-    #: (`ptyhost.held`), so its number is no other server's; the reader
-    #: is saved for the partial UTF-8 bytes its decoder holds.
+    #: says. The exec carries the master under the snapshot's number; the
+    #: reader is saved for the partial UTF-8 bytes its decoder holds.
     KEEP: ClassVar[dict[str, str]] = {
         "master": "rebuilt",
         "slave": "dropped",  # none once the program runs
@@ -142,7 +141,7 @@ class PosixBackend(Backend):
         self.spawn = spawn
         self.cell = cell
 
-        # A pty of its own, unless the holder handed a master over. Each
+        # A pty of its own, unless an adopted program brings its master. Each
         # end is `None` once it is closed.
         master, slave = pty if pty is not None else os.openpty()
         # **Non-blocking, so nothing here waits on the program.** A
@@ -182,7 +181,7 @@ class PosixBackend(Backend):
         self.returncode: int | None = None
         #: Whether this process is the program's parent, and so can wait
         #: for it. An upgrade's exec keeps the pid, so a program stays its
-        #: child; one taken over from the holder never is.
+        #: child; one another process forked never is.
         self.parent = True
         #: The pump read the end of the file.
         self._drained = anyio.Event()
