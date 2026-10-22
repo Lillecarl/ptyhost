@@ -130,6 +130,9 @@ _STANDARD_LIBRARY = {
     "struct",
     "sys",
     "termios",
+    # Whether a handler can be installed here: only on the main thread.
+    # Lillecarl/pymux#728.
+    "threading",
     "time",
     "traceback",
     "tty",

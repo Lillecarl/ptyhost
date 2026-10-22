@@ -37,6 +37,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
+from .ending import say_how_it_ends
 from .spawn import Spawn, exec_failure, exec_pipe, run_in_child, run_on_pipes, wait_for_exec
 
 __all__ = ("OPS", "VERSION", "HolderClient", "HolderError", "main", "receive", "send", "spawn_request")
@@ -566,6 +567,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.detach:
         _detach(args.log)
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format=LOG_FORMAT)
+    say_how_it_ends(logger)
     logger.info("Holding on %s.", args.socket)
     try:
         Holder(listener).run()
