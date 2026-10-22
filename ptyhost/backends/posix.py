@@ -520,8 +520,11 @@ class PosixBackend(Backend):
             if not self.parent:
                 assert self.pid is not None
                 await stranger_ended(self.pid, self._drained)
-            elif not self._reaped_now():
-                await anyio.to_thread.run_sync(self._wait_for_child)
+            elif self.spawn is not None or not self._reaped_now():
+                # Abandoned on a cancel, so the kill below runs at once and
+                # the thread's wait then returns: a job no `stop` kills
+                # first held its server's scope open until it ended.
+                await anyio.to_thread.run_sync(self._wait_for_child, abandon_on_cancel=True)
         except anyio.get_cancelled_exc_class():
             self.send_signal(signal.SIGKILL)
             raise
@@ -541,14 +544,16 @@ class PosixBackend(Backend):
 
     def _reaped_now(self) -> bool:
         """
-        Reap a child that ended already, without a thread. A program
-        can end while an upgrade's exec runs, and is a zombie of the new
-        image, or gone with no code when the old image reaped it first.
+        Reap an adopted child that ended already, without a thread. A
+        program can end while an upgrade's exec runs, and is a zombie of
+        the new image, or gone with no code when the old image reaped it
+        first. Only an adopted one: a fresh child reaped this soon takes
+        its pane before the caller of `start` has placed it.
         """
         if self.pid is None:
             return True
         ended, self.returncode = reaped_now(self.pid)
-        if ended and self.spawn is None:
+        if ended:
             logger.info("Program %d ended before it was adopted, with %s.", self.pid, self.returncode)
         return ended
 
