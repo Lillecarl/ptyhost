@@ -300,6 +300,92 @@ def test_a_broken_request_does_not_end_the_holder(holder):
     assert client.programs() == []
 
 
+def test_a_message_that_is_not_an_object_does_not_end_the_holder(holder):
+    "Its `.get` raised inside the handler meant to catch it. Lillecarl/pymux#731."
+    path, process = holder
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(TIMEOUT)
+    sock.connect(path)
+    send(sock, ["not", "an", "object"])  # type: ignore[arg-type]
+    assert receive(sock) is None
+    sock.close()
+
+    client = HolderClient.connect(path)
+    assert client.programs() == []
+    assert process.poll() is None
+
+
+def test_an_error_in_a_step_of_the_loop_does_not_end_it(socket_dir, monkeypatch):
+    "Only `quit`, the timers or a signal end the loop. Lillecarl/pymux#731."
+    from ptyhost.holder import Holder, listen
+
+    holder = Holder(listen(str(socket_dir / "holder.sock")))
+    calls = []
+
+    def broken() -> None:
+        calls.append(1)
+        holder.quitting = True
+        raise RuntimeError("a fault in the reaper")
+
+    monkeypatch.setattr(holder, "_reap", broken)
+    holder.run()
+
+    assert calls == [1]
+
+
+def test_an_accept_that_keeps_failing_is_unheard_for_a_while(socket_dir):
+    "No fd left leaves the listener readable, and the loop would spin on it."
+    import errno
+    import selectors
+
+    from ptyhost.holder import Holder, listen
+
+    real = listen(str(socket_dir / "holder.sock"))
+
+    class OutOfFds:
+        def fileno(self):
+            return real.fileno()
+
+        def setblocking(self, flag):
+            real.setblocking(flag)
+
+        def accept(self):
+            raise OSError(errno.EMFILE, "Too many open files")
+
+    holder = Holder(OutOfFds())  # type: ignore[arg-type]
+    holder._accept()
+
+    assert holder._listen_again_at is not None
+    with pytest.raises(KeyError):
+        holder.selector.get_key(holder.listener)
+
+    holder._listen_again_at = time.monotonic()
+    holder._listen_again()
+    assert holder.selector.get_key(holder.listener).events == selectors.EVENT_READ
+
+
+def test_a_detached_holder_writes_on_after_its_log_rotates(socket_dir):
+    "The server rotates the file; the holder's lines went to the old one. Lillecarl/pymux#731."
+    path = str(socket_dir / "holder.sock")
+    log = socket_dir / "server.log"
+    starter = subprocess.Popen(
+        [sys.executable, "-m", "ptyhost.holder", "--socket", path, "--detach", "--log", str(log)]
+    )
+    assert starter.wait(TIMEOUT) == 0
+    client = HolderClient.connect(path)
+    try:
+        log.rename(socket_dir / "server.log.1")
+        program, master = started(client, "print('done')")
+        os.close(master)
+        deadline = time.monotonic() + TIMEOUT
+        while not log.exists() or "Program %d is pid" % (program["id"],) not in log.read_text():
+            assert time.monotonic() < deadline, "the holder wrote nothing to the new file"
+            time.sleep(0.01)
+    finally:
+        client.quit()
+        client.close()
+
+
 def test_a_second_holder_on_the_same_socket_is_refused(holder):
     path, _ = holder
     second = subprocess.run(

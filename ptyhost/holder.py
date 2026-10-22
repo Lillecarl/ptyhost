@@ -27,6 +27,7 @@ import argparse
 import contextlib
 import json
 import logging
+import logging.handlers
 import os
 import selectors
 import signal
@@ -66,6 +67,9 @@ ORPHAN_SECONDS = 30.0
 #: How long one message may take. A server that stops reading in the
 #: middle of one is dropped rather than left to stall every other.
 MESSAGE_SECONDS = 5.0
+
+#: How long a holder whose accept failed waits before it listens again.
+LISTEN_AGAIN_SECONDS = 1.0
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +210,8 @@ class Holder:
         #: A server asked to end it all: the server itself is ending.
         self.quitting = False
         self._next_id = 1
+        #: When to listen again after an accept that failed, or None.
+        self._listen_again_at: float | None = None
 
         # A SIGCHLD wakes the selector through this pair.
         self._wake, self._woken = socket.socketpair()
@@ -218,17 +224,30 @@ class Holder:
         self.selector.register(self._woken, selectors.EVENT_READ)
 
     def run(self) -> None:
+        """
+        **Nothing but `quit`, the timers or a signal ends this.** An
+        error that escaped the loop ended the holder, and every program
+        it held with it. So each step is guarded, and its error is
+        logged and left behind. Lillecarl/pymux#731.
+        """
         idle_since = alone_since = time.monotonic()
         while True:
-            for key, _ in self.selector.select(IDLE_SECONDS / 4):
-                if key.fileobj is self.listener:
-                    self._accept()
-                elif key.fileobj is self._woken:
-                    with contextlib.suppress(BlockingIOError):
-                        self._woken.recv(4096)
-                else:
-                    self._serve(key.fileobj)  # type: ignore[arg-type]
-            self._reap()
+            for key, _ in self.selector.select(self._select_timeout()):
+                try:
+                    if key.fileobj is self.listener:
+                        self._accept()
+                    elif key.fileobj is self._woken:
+                        with contextlib.suppress(BlockingIOError):
+                            self._woken.recv(4096)
+                    else:
+                        self._serve(key.fileobj)  # type: ignore[arg-type]
+                except Exception:
+                    logger.exception("A step of the loop failed; the holder carries on.")
+            try:
+                self._reap()
+                self._listen_again()
+            except Exception:
+                logger.exception("Reaping failed; the holder carries on.")
             if self.quitting:
                 logger.info("Told to quit: hanging up %d programs.", len(self.programs))
                 self._hang_up()
@@ -252,11 +271,34 @@ class Holder:
             program.hang_up()
 
     def _accept(self) -> None:
-        with contextlib.suppress(BlockingIOError):
+        """
+        Take a server. An accept that fails for a reason that lasts --
+        no fd left -- leaves the listener readable, and the loop would
+        spin on it and fill the log: it is unheard for a second instead.
+        """
+        try:
             server, _ = self.listener.accept()
-            server.settimeout(MESSAGE_SECONDS)
-            self.servers[server] = False
-            self.selector.register(server, selectors.EVENT_READ)
+        except BlockingIOError:
+            return
+        except OSError:
+            logger.exception("Taking a server failed; listening again in %ds.", LISTEN_AGAIN_SECONDS)
+            self.selector.unregister(self.listener)
+            self._listen_again_at = time.monotonic() + LISTEN_AGAIN_SECONDS
+            return
+        server.settimeout(MESSAGE_SECONDS)
+        self.servers[server] = False
+        self.selector.register(server, selectors.EVENT_READ)
+
+    def _listen_again(self) -> None:
+        if self._listen_again_at is not None and time.monotonic() >= self._listen_again_at:
+            self._listen_again_at = None
+            self.selector.register(self.listener, selectors.EVENT_READ)
+
+    def _select_timeout(self) -> float:
+        timeout = IDLE_SECONDS / 4
+        if self._listen_again_at is not None:
+            timeout = min(timeout, max(0.0, self._listen_again_at - time.monotonic()))
+        return timeout
 
     def _drop(self, server: socket.socket) -> None:
         self.selector.unregister(server)
@@ -273,6 +315,12 @@ class Holder:
             self._drop(server)
             return
         message, fds = got
+        # JSON that is not an object is no message: `.get` below raised
+        # inside the handler that was to catch it.
+        if not isinstance(message, dict):
+            _close_all(fds)
+            self._drop(server)
+            return
         # Any exception and not a list: one that escapes ends the holder,
         # and that hangs up every program it holds.
         try:
@@ -566,7 +614,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     if args.detach:
         _detach(args.log)
-    logging.basicConfig(stream=sys.stderr, level=logging.INFO, format=LOG_FORMAT)
+    # **Through a handler that reopens the file**, and not the stderr
+    # `_detach` points at it: the server rotates that file, and a holder
+    # outlives many rotations. Its lines went to a deleted file, so none
+    # of the holder that died on 2026-10-22 survived. Lillecarl/pymux#731.
+    handler: logging.Handler = (
+        logging.handlers.WatchedFileHandler(args.log) if args.detach and args.log else logging.StreamHandler(sys.stderr)
+    )
+    logging.basicConfig(handlers=[handler], level=logging.INFO, format=LOG_FORMAT)
     say_how_it_ends(logger)
     logger.info("Holding on %s.", args.socket)
     try:
