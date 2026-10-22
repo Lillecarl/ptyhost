@@ -62,9 +62,9 @@ async def test_an_adopted_child_talks_and_ends_with_its_code():
 async def test_a_child_that_ended_before_the_adoption_ends_at_once():
     "It ended during the exec: a zombie of the new image, reaped before any thread waits."
     pid, master = _fork("print('last words', flush=True)\nraise SystemExit(5)\n")
+    # Ended, and left unreaped.
     with anyio.fail_after(TIMEOUT):
-        while os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is None:
-            await anyio.sleep(0.01)
+        await anyio.to_thread.run_sync(os.waitid, os.P_PID, pid, os.WEXITED | os.WNOWAIT)
     said: list[str] = []
     ended = anyio.Event()
     async with anyio.create_task_group() as task_group:
