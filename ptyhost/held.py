@@ -32,13 +32,15 @@ __all__ = ("HeldBackend", "Holding", "backend_of")
 class Holding:
     "One server's connection to its holder. `run` must run while it is used."
 
-    def __init__(self, sock: socket.socket, ops: frozenset[str] = frozenset()) -> None:
+    def __init__(self, sock: socket.socket, ops: frozenset[str] = frozenset(), pid: int | None = None) -> None:
         # The reader waits for as long as the holder is quiet.
         sock.settimeout(None)
         self.sock = sock
         #: What the holder said it answers. A holder older than the list
         #: names nothing, and still answers what version 1 had.
         self.ops = ops
+        #: The holder's pid, which `restart-holder` ends.
+        self.pid = pid
         self._lock = anyio.Lock()
         self._reply: tuple[dict[str, Any], list[int]] | None = None
         self._replied = anyio.Event()
@@ -57,7 +59,7 @@ class Holding:
     @classmethod
     async def connect(cls, path: str) -> Holding:
         client = await anyio.to_thread.run_sync(HolderClient.connect, path)
-        return cls(client.sock, client.ops)
+        return cls(client.sock, client.ops, client.pid)
 
     async def run(self) -> None:
         "Read the holder until it goes away."
@@ -146,9 +148,22 @@ class Holding:
     async def fds(self, program_id: int) -> list[int]:
         "Copies of what the holder keeps of a program, recording an exit it reports, as `master` does."
         reply, fds = await self.request({"op": "fds", "id": program_id})
-        if reply.get("status") is not None:
-            self._end(program_id, reply["status"])
+        self._ended_if(program_id, reply)
         return fds
+
+    def _ended_if(self, program_id: int, reply: dict[str, Any]) -> None:
+        "Record an end the holder reports: an exit code, or an adopted program's end with none."
+        if reply.get("status") is not None or reply.get("ended"):
+            self._end(program_id, reply.get("status"))
+
+    async def adopt(self, pid: int, fds: Sequence[int], on_pipes: bool = False) -> int:
+        """
+        Have this holder keep a program a holder that is gone forked:
+        its pid, and copies of the master, or of the two read ends. The
+        new holder's name for it comes back. Lillecarl/pymux#730.
+        """
+        reply, _ = await self.request({"op": "adopt", "pid": pid, "pipes": on_pipes}, fds)
+        return reply["id"]
 
     async def programs(self) -> list[dict[str, Any]]:
         reply, _ = await self.request({"op": "programs"})
@@ -161,8 +176,7 @@ class Holding:
         """
         reply, fds = await self.request({"op": "master", "id": program_id})
         (master,) = fds
-        if reply.get("status") is not None:
-            self._end(program_id, reply["status"])
+        self._ended_if(program_id, reply)
         return master
 
     async def release(self, program_id: int) -> None:
@@ -284,16 +298,37 @@ class HeldBackend(PosixBackend):
         nothing else: this process holds the master too, so the program
         keeps its terminal, and its end shows as the end of the file.
         """
+        # **The holder and the id this started with**, read once: an
+        # adoption swaps both while this waits, and the old id released on
+        # the new holder names some other program. Lillecarl/pymux#730.
+        holding, program_id = self.holding, self.program_id
         try:
-            assert self.program_id is not None
-            await self.holding.ended(self.program_id)
-            if self.holding.lost:
+            assert program_id is not None
+            await holding.ended(program_id)
+            if holding.lost:
                 await self._drained.wait()
             else:
                 with contextlib.suppress(HolderError):
-                    await self.holding.release(self.program_id)
+                    await holding.release(program_id)
         finally:
             self.ready_f.set()
+
+    def adopted_by(self, holding: Holding, program_id: int) -> None:
+        """
+        A new holder keeps this program now, under a new id, since the
+        one that forked it is gone. The end still shows as the end of
+        the file; this only lets the new holder forget it then.
+        Lillecarl/pymux#730.
+        """
+        self.holding, self.program_id = holding, program_id
+        if self._task_group is not None:
+            self._task_group.start_soon(self._release_when_ended, holding, program_id)
+
+    async def _release_when_ended(self, holding: Holding, program_id: int) -> None:
+        await holding.ended(program_id)
+        if not holding.lost:
+            with contextlib.suppress(HolderError):
+                await holding.release(program_id)
 
 
 def backend_of(spawn: Callable[[], Spawn], cell=(0, 0), holding: Holding | None = None) -> PosixBackend:

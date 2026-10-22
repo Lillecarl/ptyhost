@@ -7,6 +7,7 @@ over its socket, the way a server does. Lillecarl/pymux#553.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import select
 import signal
@@ -111,7 +112,9 @@ def test_an_exit_with_no_server_attached_is_kept_for_the_next(holder):
         assert time.monotonic() < deadline, listed
         time.sleep(0.01)
 
-    assert listed == [{"id": program["id"], "pid": program["pid"], "status": 3, "pipes": False}]
+    assert listed == [
+        {"id": program["id"], "pid": program["pid"], "status": 3, "pipes": False, "ended": True, "adopted": False}
+    ]
 
 
 def test_a_server_hears_of_an_exit(holder):
@@ -128,6 +131,8 @@ def test_a_server_hears_of_an_exit(holder):
         "pid": program["pid"],
         "status": 5,
         "pipes": False,
+        "ended": True,
+        "adopted": False,
     }
 
 
@@ -225,6 +230,8 @@ def test_a_program_on_pipes_keeps_its_streams_apart(holder):
         "pid": reply["pid"],
         "status": 4,
         "pipes": True,
+        "ended": True,
+        "adopted": False,
     }
 
 
@@ -384,6 +391,81 @@ def test_a_detached_holder_writes_on_after_its_log_rotates(socket_dir):
     finally:
         client.quit()
         client.close()
+
+
+def test_a_new_holder_adopts_a_program_whose_holder_is_gone(socket_dir):
+    """
+    The server keeps its own master, so the program never notices its
+    holder go; a new holder takes it over, says when it ends, with no
+    exit code, and forgets it on release. Lillecarl/pymux#730.
+    """
+    path = str(socket_dir / "holder.sock")
+    first = subprocess.Popen([sys.executable, "-m", "ptyhost.holder", "--socket", path])
+    try:
+        deadline = time.monotonic() + TIMEOUT
+        while not os.path.exists(path):
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        old = HolderClient.connect(path)
+        program, master = echo(old)
+        until(master, "READY")
+        old.close()
+        first.send_signal(signal.SIGTERM)
+        first.wait(TIMEOUT)
+
+        os.write(master, b"still here\n")
+        until(master, "<still here>")
+
+        second = subprocess.Popen([sys.executable, "-m", "ptyhost.holder", "--socket", path])
+        try:
+            deadline = time.monotonic() + TIMEOUT
+            new = None
+            while new is None:
+                try:
+                    new = HolderClient.connect(path)
+                except OSError:
+                    assert time.monotonic() < deadline
+                    time.sleep(0.01)
+            reply, _ = new.request({"op": "adopt", "pid": program["pid"], "pipes": False}, [master])
+            adopted_id = reply["id"]
+            (listed,) = new.programs()
+            assert (listed["id"], listed["pid"], listed["adopted"], listed["ended"]) == (
+                adopted_id,
+                program["pid"],
+                True,
+                False,
+            )
+
+            os.write(master, b"exit 3\n")
+            deadline = time.monotonic() + TIMEOUT
+            while not new.events:
+                assert time.monotonic() < deadline, "the new holder never said it ended"
+                new.programs()
+                time.sleep(0.05)
+            (event,) = new.events
+            assert (event["event"], event["id"], event["ended"], event["status"]) == ("exited", adopted_id, True, None)
+
+            new.request({"op": "release", "id": adopted_id})
+            assert new.programs() == []
+            new.quit()
+        finally:
+            second.kill()
+            second.wait()
+    finally:
+        first.kill()
+        first.wait()
+        with contextlib.suppress(OSError):
+            os.close(master)
+
+
+def test_adopt_wants_a_pid_and_its_fds(holder):
+    path, process = holder
+    client = HolderClient.connect(path)
+    with pytest.raises(HolderError):
+        client.request({"op": "adopt", "pid": "not a pid", "pipes": False})
+
+    assert process.poll() is None
+    assert client.programs() == []
 
 
 def test_a_second_holder_on_the_same_socket_is_refused(holder):

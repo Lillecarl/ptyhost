@@ -52,7 +52,7 @@ VERSION = 1
 
 #: What this holder answers. A holder from before this list names none,
 #: and answers the ops of version 1.
-OPS = ("spawn", "spawn-pipes", "programs", "master", "fds", "release", "quit")
+OPS = ("spawn", "spawn-pipes", "adopt", "programs", "master", "fds", "release", "quit")
 
 #: How long a holder with no program and no server waits before it exits.
 IDLE_SECONDS = 5.0
@@ -166,9 +166,11 @@ def _close_all(fds: Sequence[int]) -> None:
 
 
 class _Program:
-    __slots__ = ("fds", "on_pipes", "pid", "program_id", "released", "status")
+    __slots__ = ("adopted", "ended", "fds", "on_pipes", "pid", "program_id", "released", "status")
 
-    def __init__(self, program_id: int, pid: int, fds: list[int], on_pipes: bool = False) -> None:
+    def __init__(
+        self, program_id: int, pid: int, fds: list[int], on_pipes: bool = False, adopted: bool = False
+    ) -> None:
         self.program_id = program_id
         self.pid = pid
         #: The master of its pty, or the read ends of its stdout and
@@ -176,13 +178,26 @@ class _Program:
         self.fds = fds
         #: A program with no terminal, in a session of its own.
         self.on_pipes = on_pipes
+        #: Taken over from a holder that is gone, so not this holder's
+        #: child: it cannot be waited for, and its exit code is lost.
+        #: Lillecarl/pymux#730.
+        self.adopted = adopted
         #: The exit code once reaped, as `os.waitstatus_to_exitcode` says it.
         self.status: int | None = None
+        #: It ended. An adopted program ends with no exit code.
+        self.ended = False
         #: A server let it go. It stays until the child is reaped.
         self.released = False
 
     def describe(self) -> dict[str, Any]:
-        return {"id": self.program_id, "pid": self.pid, "status": self.status, "pipes": self.on_pipes}
+        return {
+            "id": self.program_id,
+            "pid": self.pid,
+            "status": self.status,
+            "pipes": self.on_pipes,
+            "ended": self.ended,
+            "adopted": self.adopted,
+        }
 
     def hang_up(self) -> None:
         """
@@ -192,7 +207,7 @@ class _Program:
         """
         _close_all(self.fds)
         self.fds = []
-        if self.on_pipes and self.status is None:
+        if self.on_pipes and not self.ended:
             with contextlib.suppress(OSError):
                 os.killpg(self.pid, signal.SIGHUP)
 
@@ -351,6 +366,8 @@ class Holder:
         if op == "spawn-pipes":
             program = self._spawn_on_pipes(message, fds)
             return program.describe(), list(program.fds)
+        if op == "adopt":
+            return self._adopt(message, fds).describe(), []
         if op == "quit":
             self.quitting = True
             return {}, []
@@ -444,7 +461,7 @@ class Holder:
     def _release(self, program: _Program) -> None:
         program.released = True
         program.hang_up()
-        if program.status is not None:
+        if program.ended:
             del self.programs[program.program_id]
 
     def _reap(self) -> None:
@@ -452,17 +469,60 @@ class Holder:
             try:
                 pid, raw = os.waitpid(-1, os.WNOHANG)
             except ChildProcessError:
-                return
+                break
             if pid == 0:
-                return
+                break
             for program in list(self.programs.values()):
-                if program.pid == pid:
+                if program.pid == pid and not program.adopted:
                     program.status = os.waitstatus_to_exitcode(raw)
                     logger.info("Program %d (pid %d) ended with %d.", program.program_id, pid, program.status)
-                    if program.released:
-                        del self.programs[program.program_id]
-                    else:
-                        self._tell({"event": "exited", **program.describe()})
+                    self._ended(program)
+        self._look_at_the_adopted()
+
+    def _look_at_the_adopted(self) -> None:
+        """
+        Whether each adopted program still runs. Not this holder's child,
+        so no SIGCHLD and no `waitpid`: a pid that is gone is a program
+        that ended, its exit code with it. The loop comes here at least
+        every `IDLE_SECONDS / 4`. Lillecarl/pymux#730.
+        """
+        for program in list(self.programs.values()):
+            if not program.adopted or program.ended:
+                continue
+            try:
+                os.kill(program.pid, 0)
+            except ProcessLookupError:
+                logger.info("Adopted program %d (pid %d) ended.", program.program_id, program.pid)
+                self._ended(program)
+            except PermissionError:
+                pass
+
+    def _ended(self, program: _Program) -> None:
+        program.ended = True
+        if program.released:
+            del self.programs[program.program_id]
+        else:
+            self._tell({"event": "exited", **program.describe()})
+
+    def _adopt(self, message: dict[str, Any], fds: list[int]) -> _Program:
+        """
+        Keep a program a holder that is gone forked: its pid, and the
+        master or the two read ends the server still had. The server
+        held its own copies, so the program never noticed the old
+        holder go. Lillecarl/pymux#730.
+        """
+        on_pipes = bool(message.get("pipes"))
+        pid = message.get("pid")
+        if not isinstance(pid, int) or len(fds) != (2 if on_pipes else 1):
+            raise HolderError("adopt takes a pid and %s" % ("two read ends" if on_pipes else "a master"))
+        kept = [os.dup(fd) for fd in fds]
+        for fd in kept:
+            os.set_inheritable(fd, False)
+        program = _Program(self._next_id, pid, kept, on_pipes, adopted=True)
+        self._next_id += 1
+        self.programs[program.program_id] = program
+        logger.info("Program %d is pid %d, adopted.", program.program_id, pid)
+        return program
 
     def _tell(self, event: dict[str, Any]) -> None:
         for server, greeted in list(self.servers.items()):
@@ -482,6 +542,8 @@ class HolderClient:
         self.events: list[dict[str, Any]] = []
         #: What the holder answers. One from before `OPS` names nothing.
         self.ops: frozenset[str] = frozenset()
+        #: The holder's pid, from its hello.
+        self.pid: int | None = None
 
     @classmethod
     def connect(cls, path: str, timeout: float = MESSAGE_SECONDS) -> HolderClient:
@@ -492,6 +554,7 @@ class HolderClient:
             client = cls(sock)
             hello, _ = client.request({"op": "hello", "version": VERSION})
             client.ops = frozenset(hello.get("ops", ()))
+            client.pid = hello.get("pid")
         except BaseException:
             sock.close()
             raise
