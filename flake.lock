@@ -2,11 +2,11 @@
   "nodes": {
     "flake-compatish": {
       "locked": {
-        "lastModified": 1791656140,
-        "narHash": "sha256-a58n6UFEa3FF8Zsj/O1ii2PNpNIwu+WaW6QyjnK7Q54=",
+        "lastModified": 1792708319,
+        "narHash": "sha256-s5AthAg/231JSUHwZ1Jxg/qcdcAbWYi2ERRRHW8X2pA=",
         "owner": "Lillecarl",
         "repo": "flake-compatish",
-        "rev": "14d29ec1c368f18dfe27b1541e1d3bbb7a3a5ff6",
+        "rev": "3358220f9262c5ada71866c61f4f3457a9f49c89",
         "type": "github"
       },
       "original": {
@@ -72,11 +72,11 @@
         "pyproject-nix": "pyproject-nix"
       },
       "locked": {
-        "lastModified": 1792710940,
-        "narHash": "sha256-1CV65M2XXHyzIAcZaaFHV8uaG0uDNbZh6SyC8JXM75o=",
+        "lastModified": 1792711249,
+        "narHash": "sha256-/TsxIAo/GZCzsJpOC5kaRYfdQPQoyms30XjySa8QO7w=",
         "owner": "Lillecarl",
         "repo": "pyterm",
-        "rev": "a4385d6823fd55c3b1bcf309d90ddeb63f49be66",
+        "rev": "a247de26b0a03d520cd7c2b47945a8edb2800c0a",
         "type": "github"
       },
       "original": {
