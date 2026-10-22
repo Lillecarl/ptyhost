@@ -85,6 +85,7 @@ each source claims one job:
 | [pysmithay](https://lillecarl.github.io/pysmithay/) | a headless Wayland compositor, for a GUI program in a pane |
 | [pyterm-pytest](https://lillecarl.github.io/pyterm-pytest/) | the test equipment the suites share |
 | [deferimport](https://lillecarl.github.io/deferimport/) | make imports lazy, without a keyword |
+| [ptkhx](https://lillecarl.github.io/ptkhx/) | Helix's modal editing, for a prompt_toolkit buffer |
 
 [pyterm's site](https://lillecarl.github.io/pyterm/) holds every source's
 docs.
