@@ -15,6 +15,7 @@ import selectors
 import signal
 import time
 import traceback
+import warnings
 from typing import NamedTuple, NoReturn
 
 from .backends.posix_utils import pty_make_controlling_tty
@@ -24,6 +25,7 @@ __all__ = (
     "at_normal_priority",
     "exec_failure",
     "exec_pipe",
+    "fork_on_pipes",
     "run_in_child",
     "run_on_pipes",
     "wait_for_exec",
@@ -174,6 +176,51 @@ def run_on_pipes(spawn: Spawn, stdout: int, stderr: int, exec_end: int) -> NoRet
                 os.write(exec_end, ("%s" % (error,)).encode(errors="replace") or b"failed")
     finally:
         os._exit(127)
+
+
+def fork_on_pipes(spawn: Spawn) -> tuple[int, int, int]:
+    """
+    Start a program with no terminal, as this process's child: its pid,
+    and the read ends of its stdout and stderr. A program that cannot
+    start raises `OSError` with the child's reason, and leaves nothing
+    behind. Blocks until the child has exec'd, which takes milliseconds.
+    """
+    made: list[int] = []
+    try:
+        for _ in range(3):
+            made.extend(os.pipe())
+        # SIGWINCH blocked across the fork, as `PosixBackend.start` says.
+        blocked = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGWINCH})
+        pid = -1
+        try:
+            # The child execs at once, as `PosixBackend.start` says.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                pid = os.fork()
+        finally:
+            if pid != 0:
+                signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
+    except BaseException:
+        for fd in made:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+        raise
+    out_read, out_write, err_read, err_write, read_end, exec_end = made
+    if pid == 0:
+        for fd in (out_read, err_read, read_end):
+            os.close(fd)
+        run_on_pipes(spawn, out_write, err_write, exec_end)
+    for fd in (out_write, err_write, exec_end):
+        os.close(fd)
+    failure = exec_failure(read_end)
+    if failure is not None:
+        os.close(out_read)
+        os.close(err_read)
+        # It exits at once, and nothing else here knows its pid.
+        with contextlib.suppress(ChildProcessError):
+            os.waitpid(pid, 0)
+        raise OSError(failure)
+    return pid, out_read, err_read
 
 
 def at_normal_priority() -> None:

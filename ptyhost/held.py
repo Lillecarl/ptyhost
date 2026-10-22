@@ -250,8 +250,7 @@ class HeldBackend(PosixBackend):
         self.holding = holding
         #: The holder's name for the program, once it runs.
         self.program_id: int | None = None
-        #: The pump read the end of the file.
-        self._drained = anyio.Event()
+        self.parent = False
 
     @classmethod
     def adopt_held(cls, holding: Holding, program_id: int, pid: int, master: int, cell=(0, 0)) -> HeldBackend:
@@ -275,12 +274,6 @@ class HeldBackend(PosixBackend):
         task_group.start_soon(self._pump)
         task_group.start_soon(self._write_the_rest)
         task_group.start_soon(self._reap)
-
-    async def _pump(self) -> None:
-        try:
-            await super()._pump()
-        finally:
-            self._drained.set()
 
     @property
     def reaped(self) -> bool:

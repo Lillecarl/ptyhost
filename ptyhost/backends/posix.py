@@ -32,6 +32,50 @@ _NAME_KEPT_FOR = 0.25
 #: show it.
 GRACE = 5.0
 
+#: How often the end of a program that is not this process's child is
+#: looked for, in seconds. No `waitpid` reaches it, so the pid is asked.
+STRANGER_SECONDS = 1.0
+
+
+def reaped_now(pid: int) -> tuple[bool, int | None]:
+    """
+    Whether this process's child `pid` has ended, reaping it if so, and
+    how. A child that is not there -- reaped by an earlier image of this
+    process, across an exec -- has ended with no code to tell.
+    """
+    try:
+        found, status = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        return True, None
+    if found == 0:
+        return False, None
+    return True, os.waitstatus_to_exitcode(status)
+
+
+def is_gone(pid: int) -> bool:
+    "Whether no process has the pid. One of another user's is there."
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
+
+
+async def stranger_ended(pid: int, drained: anyio.Event) -> None:
+    """
+    Wait for a program this process did not fork: until its pid is gone,
+    or `drained` says what it wrote has ended. A zombie that its new
+    parent leaves unreaped still has its pid, and the end of its output
+    covers that.
+    """
+    while not is_gone(pid):
+        with anyio.move_on_after(STRANGER_SECONDS):
+            await drained.wait()
+        if drained.is_set():
+            return
+
 
 def spawn_of(
     command: list[str],
@@ -88,6 +132,8 @@ class PosixBackend(Backend):
         "_name_kept": "dropped",
         "returncode": "dropped",  # the program is running, so there is none
         "_task_group": "dropped",  # the next server's `start` names its own
+        "parent": "rebuilt",  # the snapshot's own column says it
+        "_drained": "rebuilt",
     }
 
     def __init__(self, spawn: Callable[[], Spawn] | None, cell=(0, 0), pty: tuple[int, int | None] | None = None):
@@ -131,13 +177,36 @@ class PosixBackend(Backend):
 
         self.pid: int | None = None
         #: How the program ended, as `subprocess` says it: negative for a
-        #: signal. None while it runs, and for a program another server
-        #: reaped.
+        #: signal. None while it runs, and for a program no `waitpid`
+        #: here could reach.
         self.returncode: int | None = None
+        #: Whether this process is the program's parent, and so can wait
+        #: for it. An upgrade's exec keeps the pid, so a program stays its
+        #: child; one taken over from the holder never is.
+        self.parent = True
+        #: The pump read the end of the file.
+        self._drained = anyio.Event()
 
         #: The group that watches the program, which `hang_up` starts
         #: the SIGKILL that follows its SIGHUP in.
         self._task_group: anyio.abc.TaskGroup | None = None
+
+    @classmethod
+    def adopt(cls, master: int, pid: int, parent: bool, cell=(0, 0)) -> PosixBackend:
+        """
+        A program that runs already, on the pty `master` is the master of:
+        one an earlier image of this process forked, across an exec, or one
+        another process forked. `start` forks nothing for it. Lillecarl/pymux#736.
+
+        Raises `OSError` when `master` is no pty master. A number is only
+        what the snapshot wrote down, and a wrong one would send the
+        pane's keystrokes into some other file.
+        """
+        verify_pty(master, None)
+        backend = cls(None, cell=cell, pty=(master, None))
+        backend.pid = pid
+        backend.parent = parent
+        return backend
 
     def add_input_ready_callback(self, callback):
         self._input_ready_callbacks.append(callback)
@@ -256,6 +325,14 @@ class PosixBackend(Backend):
         ends them: the pump lets the master side go, and the reaper
         kills a child the scope leaves behind rather than keeping it.
         """
+        if self.pid is not None:
+            # Adopted: the program runs already.
+            self._task_group = task_group
+            task_group.start_soon(self._pump)
+            task_group.start_soon(self._write_the_rest)
+            task_group.start_soon(self._reap)
+            return
+
         assert self.spawn is not None
         spawn = self.spawn()
 
@@ -409,6 +486,7 @@ class PosixBackend(Backend):
                     await callback()
         finally:
             self.close()
+            self._drained.set()
 
     async def _reap(self) -> None:
         """
@@ -434,9 +512,16 @@ class PosixBackend(Backend):
         its number then could reach whatever the system gave it to
         next. `send_signal` only signals a child that is still there
         in any case.
+
+        A program this process did not fork has no `waitpid` here, so it
+        ends when its pid goes or its output does, with no exit code.
         """
         try:
-            await anyio.to_thread.run_sync(self._wait_for_child)
+            if not self.parent:
+                assert self.pid is not None
+                await stranger_ended(self.pid, self._drained)
+            elif not self._reaped_now():
+                await anyio.to_thread.run_sync(self._wait_for_child)
         except anyio.get_cancelled_exc_class():
             self.send_signal(signal.SIGKILL)
             raise
@@ -453,6 +538,17 @@ class PosixBackend(Backend):
             # way it picks up anything else a program wrote while
             # nobody was reading.
             self.ready_f.set()
+
+    def _reaped_now(self) -> bool:
+        """
+        Reap a child that ended already, without a thread. A program
+        can end while an upgrade's exec runs, and is a zombie of the new
+        image, or gone with no code when the old image reaped it first.
+        """
+        if self.pid is None:
+            return True
+        ended, self.returncode = reaped_now(self.pid)
+        return ended
 
     def _wait_for_child(self) -> None:
         "Wait for PID in a worker thread."
