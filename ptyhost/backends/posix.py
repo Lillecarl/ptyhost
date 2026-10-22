@@ -548,6 +548,8 @@ class PosixBackend(Backend):
         if self.pid is None:
             return True
         ended, self.returncode = reaped_now(self.pid)
+        if ended and self.spawn is None:
+            logger.info("Program %d ended before it was adopted, with %s.", self.pid, self.returncode)
         return ended
 
     def _wait_for_child(self) -> None:
