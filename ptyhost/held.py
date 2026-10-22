@@ -50,6 +50,9 @@ class Holding:
         self.statuses: dict[int, int | None] = {}
         #: The holder went away. Every program it held is gone with it.
         self.lost = False
+        #: The programs a release was asked for while this server hands
+        #: them to the next one, or None while it does not.
+        self._held_back: set[int] | None = None
 
     @classmethod
     async def connect(cls, path: str) -> Holding:
@@ -163,7 +166,31 @@ class Holding:
         return master
 
     async def release(self, program_id: int) -> None:
+        """
+        Let the holder forget a program that ended.
+
+        **Not while this server hands its programs over.** The snapshot
+        names every program it holds, and one that ends during the
+        handover is the next server's to take, ended or not: released
+        here, the holder forgot it and the next server refused the
+        takeover. Lillecarl/pymux#727.
+        """
+        if self._held_back is not None:
+            self._held_back.add(program_id)
+            return
         await self.request({"op": "release", "id": program_id})
+
+    def hold_releases(self) -> None:
+        "Keep every program from here on, for the server that takes over."
+        if self._held_back is None:
+            self._held_back = set()
+
+    async def release_held(self) -> None:
+        "The handover failed: release what ended during it, as it would have been."
+        held, self._held_back = self._held_back or set(), None
+        for program_id in sorted(held):
+            with contextlib.suppress(HolderError):
+                await self.release(program_id)
 
     async def quit(self) -> None:
         "Hang up every program and end the holder: the server is ending."

@@ -75,6 +75,60 @@ async def test_a_held_program_talks_and_ends(holder):
         holding.close()
 
 
+async def test_a_program_that_ends_during_a_handover_stays_for_the_next_server(holder):
+    """
+    The snapshot names it, so the holder must still have it, ended,
+    when the next server asks. Released, the takeover failed with
+    "no program". Lillecarl/pymux#727.
+    """
+    path, _ = holder
+    first = await Holding.connect(path)
+    said: list[str] = []
+    ended = anyio.Event()
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(first.run)
+        process = await held(first, said, ended.set, task_group=task_group)
+        await until(said, "READY")
+        program_id = process.backend.program_id
+
+        first.hold_releases()
+        process.write_input("exit 5\n")
+        with anyio.fail_after(TIMEOUT):
+            await ended.wait()
+
+        second = await Holding.connect(path)
+        task_group.start_soon(second.run)
+        master = await second.master(program_id)
+        os.close(master)
+        assert second.statuses[program_id] == 5
+        second.close()
+        task_group.cancel_scope.cancel()
+    first.close()
+
+
+async def test_a_handover_that_failed_releases_what_ended_during_it(holder):
+    path, _ = holder
+    holding = await Holding.connect(path)
+    said: list[str] = []
+    ended = anyio.Event()
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(holding.run)
+        process = await held(holding, said, ended.set, task_group=task_group)
+        await until(said, "READY")
+
+        holding.hold_releases()
+        process.write_input("exit 6\n")
+        with anyio.fail_after(TIMEOUT):
+            await ended.wait()
+        assert [listed["id"] for listed in await holding.programs()] == [process.backend.program_id]
+
+        await holding.release_held()
+
+        assert await holding.programs() == []
+        holding.close()
+        task_group.cancel_scope.cancel()
+
+
 async def test_a_held_program_outlives_the_scope_that_started_it(holder):
     "A server that ends without a word leaves the program to the next one."
     path, _ = holder
