@@ -142,7 +142,8 @@ class Process:
         self._task_group = task_group
         await self.backend.start(task_group)
 
-        if self.done_callback is not None and self.backend.ready_f is not None:
+        # A program that ended before this image said so in that image.
+        if self.done_callback is not None and self.backend.ready_f is not None and not self.backend.ready_f.is_set():
             task_group.start_soon(self._watch_end)
 
     def after_thaw(self) -> None:

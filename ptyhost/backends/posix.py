@@ -129,7 +129,7 @@ class PosixBackend(Backend):
         "_unwritten": "dropped",  # keys still on their way when it paused
         "_more_to_write": "rebuilt",
         "_name_kept": "dropped",
-        "returncode": "dropped",  # the program is running, so there is none
+        "returncode": "saved",  # none while it runs; a pane that stays keeps it
         "_task_group": "dropped",  # the next server's `start` names its own
         "parent": "rebuilt",  # the snapshot's own column says it
         "_drained": "rebuilt",
@@ -205,6 +205,23 @@ class PosixBackend(Backend):
         backend = cls(None, cell=cell, pty=(master, None))
         backend.pid = pid
         backend.parent = parent
+        return backend
+
+    @classmethod
+    def ended(cls, pid: int, cell=(0, 0)) -> PosixBackend:
+        """
+        A program that ended before this image, in a pane that stays
+        (`remain-on-exit`). It has no pty, and `start` watches nothing.
+        Lillecarl/pymux#738.
+        """
+        backend = cls(None, cell=cell)
+        backend.close()
+        if backend.slave is not None:
+            os.close(backend.slave)
+            backend.slave = None
+        backend._reader.closed = True
+        backend.pid = pid
+        backend.ready_f.set()
         return backend
 
     def add_input_ready_callback(self, callback):
@@ -324,6 +341,10 @@ class PosixBackend(Backend):
         ends them: the pump lets the master side go, and the reaper
         kills a child the scope leaves behind rather than keeping it.
         """
+        if self.master is None and self.ready_f.is_set():
+            # Ended before this image: nothing to read or to reap.
+            self._task_group = task_group
+            return
         if self.pid is not None:
             # Adopted: the program runs already.
             self._task_group = task_group
