@@ -96,7 +96,10 @@ anyio_mode = "auto"
 # own `pyproject.toml`: its lint sees only its own tree, and its
 # repository stands alone. `nix run --file . sync-sources` writes the
 # copies, and `checks.pyterm-sources-in-step` fails while one differs.
-target-version = "py314"
+#
+# No `target-version`: ruff reads each source's `requires-python`, so
+# deferimport's floor of 3.11 keeps its syntax runnable there while the
+# others write 3.14.
 # Pinned: a ruff upgrade must never silently reflow the tree.
 line-length = 120
 
