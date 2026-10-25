@@ -72,11 +72,11 @@
         "pyproject-nix": "pyproject-nix"
       },
       "locked": {
-        "lastModified": 1792968974,
-        "narHash": "sha256-VRXewmFw8cOAn6IQJzNUDQ6d0NQIMBU71U7BgeD1H44=",
+        "lastModified": 1792970648,
+        "narHash": "sha256-wnCs89qAbU6rK0vkpQWdet/JRRwRRQui8/sOGakOhLk=",
         "owner": "Lillecarl",
         "repo": "pyterm",
-        "rev": "d36e26494aff1f5cf4cdfe71b24d35d5e375e878",
+        "rev": "233264410fc7d00eff9c05081624c8f45feca09c",
         "type": "github"
       },
       "original": {
