@@ -20,7 +20,7 @@ from .posix_utils import PtyReader, set_terminal_size
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PosixBackend", "spawn_of"]
+__all__ = ["PosixBackend", "spawn_backend", "spawn_of"]
 
 #: How long the name of the foreground program is kept, in seconds, while
 #: the foreground process group stays the same.
@@ -101,6 +101,28 @@ def spawn_of(
         return Spawn(list(command), env, directory)
 
     return spawn
+
+
+def spawn_backend(
+    command: list[str],
+    prepare: Callable[[dict[str, str]], None] | None = None,
+    directory: str | None = None,
+    cell: tuple[int, int] = (0, 0),
+) -> PosixBackend:
+    """
+    A pty for `command`, the way a widget makes one.
+
+    :param prepare: edits the program's environment. A widget passes
+        `pyte.environment.preparing`, because the program draws on the
+        widget's screen and not on the terminal the application runs in,
+        and only the widget knows both. Lillecarl/pymux#125.
+    :param cell: the screen's size of one cell in pixels. It goes into
+        the size of the pty, so that a program that draws images reads
+        there what "CSI 16 t" gives it. The screen holds that number, so
+        the widget passes it down and this layer claims nothing about
+        pixels.
+    """
+    return PosixBackend(spawn_of(command, prepare, directory), cell=cell)
 
 
 class PosixBackend(Backend):
