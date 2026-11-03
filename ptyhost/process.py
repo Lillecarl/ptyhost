@@ -180,6 +180,10 @@ class Process:
             self.tap("in", data)
         self.backend.write_text(data)
 
+    async def input_written(self) -> None:
+        "Return once the program's side holds everything `write_input` was given."
+        await self.backend.input_written()
+
     async def _read(self) -> None:
         """
         Read callback, awaited by the pump with every page.

@@ -102,6 +102,13 @@ class Backend(metaclass=abc.ABCMeta):
         Write text to the stdin of the process.
         """
 
+    async def input_written(self) -> None:
+        """
+        Return once the program's side holds what was written, so a
+        caller that writes much can wait before it writes more. A
+        backend that cannot tell returns at once.
+        """
+
     @abc.abstractmethod
     async def start(self, task_group):
         """

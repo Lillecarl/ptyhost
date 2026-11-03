@@ -150,6 +150,7 @@ class PosixBackend(Backend):
         "ready_f": "dropped",  # a new reaper sets a new one
         "_unwritten": "dropped",  # keys still on their way when it paused
         "_more_to_write": "rebuilt",
+        "_written": "rebuilt",
         "_name_kept": "dropped",
         "returncode": "saved",  # none while it runs; a pane that stays keeps it
         "_task_group": "dropped",  # the next server's `start` names its own
@@ -176,6 +177,9 @@ class PosixBackend(Backend):
 
         #: What the program has not read yet, written as it makes room.
         self._unwritten = bytearray()
+        #: Set while `_unwritten` is empty.
+        self._written = anyio.Event()
+        self._written.set()
 
         #: The foreground process group, its name, and when it was read.
         self._name_kept: tuple[int, str | None, float] | None = None
@@ -324,7 +328,12 @@ class PosixBackend(Backend):
             return
         if written < len(data):
             self._unwritten += data[written:]
+            self._written = anyio.Event()
             self._more_to_write.set()
+
+    async def input_written(self) -> None:
+        "Return once the pty holds everything `write_bytes` was given, or is closed."
+        await self._written.wait()
 
     async def _write_the_rest(self) -> None:
         "Write what `write_bytes` could not, as the program makes room."
@@ -341,8 +350,11 @@ class PosixBackend(Backend):
                     continue
                 except anyio.ClosedResourceError, OSError, ValueError:
                     self._unwritten.clear()
+                    self._written.set()
                     return
                 del self._unwritten[:written]
+            if not self._unwritten:
+                self._written.set()
 
     def set_size(self, width, height):
         """
@@ -498,6 +510,7 @@ class PosixBackend(Backend):
             self.master = None
         # The writer waits for more; it wakes to find nothing to write to.
         self._unwritten.clear()
+        self._written.set()
         self._more_to_write.set()
 
     async def _pump(self) -> None:

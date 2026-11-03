@@ -51,6 +51,11 @@ class AsyncSSHBackend(Backend):
         self._reading = anyio.Event()
         self._reading.set()
 
+        #: Set while the channel takes more: asyncssh pauses the writer
+        #: once its buffer passes the high-water mark.
+        self._writable = anyio.Event()
+        self._writable.set()
+
     async def start(self, task_group: anyio.abc.TaskGroup) -> None:
         """
         Ask for the session, watched by `task_group`.
@@ -73,6 +78,13 @@ class AsyncSSHBackend(Backend):
             def connection_lost(_, exc):
                 self.ready_f.set()
                 self._arrived.set()
+                self._writable.set()
+
+            def pause_writing(_):
+                self._writable = anyio.Event()
+
+            def resume_writing(_):
+                self._writable.set()
 
             def session_started(_):
                 pass
@@ -171,6 +183,10 @@ class AsyncSSHBackend(Backend):
 
     def write_bytes(self, data: bytes) -> None:
         raise NotImplementedError
+
+    async def input_written(self) -> None:
+        "Return once the channel's buffer is back under its low-water mark."
+        await self._writable.wait()
 
     def set_size(self, width: int, height: int) -> None:
         """

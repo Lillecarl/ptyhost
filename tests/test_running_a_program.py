@@ -502,6 +502,36 @@ async def test_what_did_not_fit_reaches_the_program():
             process.kill()
 
 
+async def test_input_written_waits_for_the_program_to_read():
+    "A writer of much can wait for room before it writes more. Lillecarl/pymux#914."
+    data = b"x" * (1 << 20)
+    said = []
+    async with anyio.create_task_group() as task_group:
+        process = await running(
+            "import os, time, tty\n"
+            "tty.setraw(0)\n"
+            "print('READY', flush=True)\n"
+            "time.sleep(0.5)\n"
+            "got = 0\n"
+            "while got < %d:\n"
+            "    got += len(os.read(0, 65536))\n"
+            "print('\\r\\nGOT', got, flush=True)\n" % (len(data),),
+            said,
+            task_group=task_group,
+        )
+        try:
+            await until(said, "READY")
+            process.backend.write_bytes(data)
+            if sys.platform.startswith("linux"):
+                assert not process.backend._written.is_set()
+            with anyio.fail_after(10):
+                await process.input_written()
+            assert not process.backend._unwritten
+            await until(said, "GOT %d" % (len(data),))
+        finally:
+            process.kill()
+
+
 async def test_a_running_program_says_where_it_is(tmp_path):
     """
     The directory a pane's program stands in, which `#{pane_current_path}`
