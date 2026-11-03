@@ -331,6 +331,10 @@ class PosixBackend(Backend):
             self._written = anyio.Event()
             self._more_to_write.set()
 
+    @property
+    def input_unwritten(self) -> int:
+        return len(self._unwritten)
+
     async def input_written(self) -> None:
         "Return once the pty holds everything `write_bytes` was given, or is closed."
         await self._written.wait()

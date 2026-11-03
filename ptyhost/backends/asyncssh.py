@@ -184,6 +184,10 @@ class AsyncSSHBackend(Backend):
     def write_bytes(self, data: bytes) -> None:
         raise NotImplementedError
 
+    @property
+    def input_unwritten(self) -> int:
+        return self._channel.get_write_buffer_size() if self._channel is not None else 0
+
     async def input_written(self) -> None:
         "Return once the channel's buffer is back under its low-water mark."
         await self._writable.wait()

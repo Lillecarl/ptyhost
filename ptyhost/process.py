@@ -180,6 +180,11 @@ class Process:
             self.tap("in", data)
         self.backend.write_text(data)
 
+    @property
+    def input_unwritten(self) -> int:
+        "Bytes `write_input` was given that the program's side does not hold yet."
+        return self.backend.input_unwritten
+
     async def input_written(self) -> None:
         "Return once the program's side holds everything `write_input` was given."
         await self.backend.input_written()

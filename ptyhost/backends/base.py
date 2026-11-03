@@ -102,6 +102,9 @@ class Backend(metaclass=abc.ABCMeta):
         Write text to the stdin of the process.
         """
 
+    #: Bytes written to the program that its side does not hold yet.
+    input_unwritten: int = 0
+
     async def input_written(self) -> None:
         """
         Return once the program's side holds what was written, so a
