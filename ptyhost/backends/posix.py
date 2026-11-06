@@ -4,6 +4,7 @@ import contextlib
 import errno
 import logging
 import os
+import select
 import signal
 import sys
 import time
@@ -298,6 +299,18 @@ class PosixBackend(Backend):
     @property
     def more_is_waiting(self) -> bool:
         return self._reader.filled
+
+    @property
+    def output_is_waiting(self) -> bool:
+        # Not `anyio.wait_readable`: the pump already waits on this
+        # descriptor, and anyio refuses a second waiter.
+        if self.master is None:
+            return False
+        try:
+            readable, _, _ = select.select([self.master], [], [], 0)
+        except OSError, ValueError:
+            return False
+        return bool(readable)
 
     def write_text(self, text):
         # "surrogateescape" carries a byte that is not text. Two things

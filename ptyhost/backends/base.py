@@ -96,6 +96,10 @@ class Backend(metaclass=abc.ABCMeta):
     #: what every read meant before.
     more_is_waiting: bool = False
 
+    #: Whether the program has written bytes that nobody has read yet.
+    #: A backend that cannot tell says False.
+    output_is_waiting: bool = False
+
     @abc.abstractmethod
     def write_text(self, text):
         """

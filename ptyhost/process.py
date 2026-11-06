@@ -64,6 +64,7 @@ class Process:
         "_invalidated_at": "dropped",
         "_owed": "dropped",
         "_task_group": "dropped",
+        "_holding_a_page": "dropped",
     }
 
     def __init__(
@@ -95,6 +96,9 @@ class Process:
         self._invalidated_at = 0.0
         self._owed = False
         self._task_group: anyio.abc.TaskGroup | None = None
+
+        #: Whether `_read` holds a page it read and has not fed yet.
+        self._holding_a_page = False
 
         # Create terminal interface.
         self.backend.add_input_ready_callback(self._read)
@@ -220,8 +224,17 @@ class Process:
 
         # Otherwise, postpone processing until we have CPU time available.
         else:
-            await anyio.lowlevel.checkpoint()
+            self._holding_a_page = True
+            try:
+                await anyio.lowlevel.checkpoint()
+            finally:
+                self._holding_a_page = False
             self._feed(page)
+
+    @property
+    def output_is_waiting(self) -> bool:
+        "Has the program written bytes that nobody has fed yet, on the pty or in a page held for a turn?"
+        return self._holding_a_page or self.backend.output_is_waiting
 
     def _feed(self, page: str) -> None:
         if self.tap is not None:
