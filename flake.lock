@@ -69,19 +69,37 @@
         "flake-compatish": "flake-compatish",
         "nixpkgs": "nixpkgs",
         "prompt-toolkit": "prompt-toolkit",
-        "pyproject-nix": "pyproject-nix"
+        "pyproject-nix": "pyproject-nix",
+        "qutebrowser": "qutebrowser"
       },
       "locked": {
-        "lastModified": 1793991210,
-        "narHash": "sha256-VAzh+a4duz8IXrQ/FoZ7ZwzFI3OYBjHr02RbTqnJxPY=",
+        "lastModified": 1793995352,
+        "narHash": "sha256-7C3XGQ74p1LXCR1e1K+lmbxqvIsGZ6DslPe0dHD4obk=",
         "owner": "Lillecarl",
         "repo": "pyterm",
-        "rev": "5756f0fe170daeb78e100fe01a6542b979f6fbe7",
+        "rev": "4f0e3103475c82098b8997ba4b54a35a92555a02",
         "type": "github"
       },
       "original": {
         "owner": "Lillecarl",
         "repo": "pyterm",
+        "type": "github"
+      }
+    },
+    "qutebrowser": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1793994717,
+        "narHash": "sha256-7CjpZW7e5o9gHFqSdDRelBZnT0DD9G3LtDrj6pNzb/g=",
+        "owner": "Lillecarl",
+        "repo": "qutebrowser",
+        "rev": "554c09f851478f2fa8a287660a91c9849e5364a6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Lillecarl",
+        "ref": "patched",
+        "repo": "qutebrowser",
         "type": "github"
       }
     },
