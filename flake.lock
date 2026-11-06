@@ -73,11 +73,11 @@
         "qutebrowser": "qutebrowser"
       },
       "locked": {
-        "lastModified": 1793995352,
-        "narHash": "sha256-7C3XGQ74p1LXCR1e1K+lmbxqvIsGZ6DslPe0dHD4obk=",
+        "lastModified": 1793998876,
+        "narHash": "sha256-5HKwlk1wP2731Z7Bf6g7zWq+kS51s0QTGiGcW2Riz0U=",
         "owner": "Lillecarl",
         "repo": "pyterm",
-        "rev": "4f0e3103475c82098b8997ba4b54a35a92555a02",
+        "rev": "bc0c43f9ce3e0616d58d88989c47620784ceb9fb",
         "type": "github"
       },
       "original": {
@@ -89,11 +89,11 @@
     "qutebrowser": {
       "flake": false,
       "locked": {
-        "lastModified": 1793994717,
-        "narHash": "sha256-7CjpZW7e5o9gHFqSdDRelBZnT0DD9G3LtDrj6pNzb/g=",
+        "lastModified": 1793996745,
+        "narHash": "sha256-bGOggr91xdF0WZ7O8t4ZiHjdpkiKcptTlT7tj8Wkhq0=",
         "owner": "Lillecarl",
         "repo": "qutebrowser",
-        "rev": "554c09f851478f2fa8a287660a91c9849e5364a6",
+        "rev": "53ec4ded36ea2434decd8fb36480bd0c24043c4f",
         "type": "github"
       },
       "original": {
