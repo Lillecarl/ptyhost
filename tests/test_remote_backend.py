@@ -7,7 +7,7 @@ pty -- is heard where the opener runs: it is logged, and `ready_f` is
 resolved either way. A caller waits on `ready_f` for the program to
 end, and a session that was never made has ended as surely as one
 that exited. Left pending, it is a pane that waits for ever with
-nothing in any log. Lillecarl/pymux#265.
+nothing in any log. Lillecarl/pyterm#267.
 
 A task the group owns needs no holding, either: the reference the
 old code kept so the collector would not take a pending task is the

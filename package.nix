@@ -5,11 +5,11 @@
 # waits -- for the child, for the master side, for a turn of the loop --
 # and anyio is how this package waits. No toolkit and no parser besides:
 # a widget that depends on it takes on nothing that draws.
-# Lillecarl/pymux#85.
+# Lillecarl/pyterm#87.
 #
 # **This is a pyproject.nix builders package, not a nixpkgs one.** What it
 # needs is declared in `pyproject.toml` and the renderer reads it; an
-# environment is a virtualenv rather than a PYTHONPATH. Lillecarl/pymux#319.
+# environment is a virtualenv rather than a PYTHONPATH. Lillecarl/pyterm#321.
 #
 # Nothing else belongs in this repository: the dev shell and the collection
 # that assembles this with its siblings live in pyterm.

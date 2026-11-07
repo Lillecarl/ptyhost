@@ -30,7 +30,7 @@
 # re-runs the suite and then throws the new output away, because it compares
 # rather than replaces, and the only way back is deleting the output and its
 # referrers from the store by hand. That cost two sessions an hour each.
-# Lillecarl/pymux#216.
+# Lillecarl/pyterm#218.
 #
 # So a suite exits with `couldNotRun` to say "this is not my answer", and the
 # run fails on that code alone. Nix keeps nothing, and the next build tries
@@ -83,7 +83,7 @@ rec {
       # command found a real syntax error went green, because the command
       # after it passed. The subshell puts the option back where the suite
       # is, and the suite's own exit still reaches `PIPESTATUS` rather than
-      # this build. Lillecarl/pymux#464.
+      # this build. Lillecarl/pyterm#466.
       # `seconds` is the suite's wall time and `cpu` the CPU seconds its
       # processes took, which `checks.all` lists. `checks.all` runs many
       # suites at once on too few cores, so one suite's wall time is

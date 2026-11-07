@@ -2,7 +2,7 @@
 A recording as an asciicast, judged by asciinema's own reader.
 
 A parser of ours would read back what our writer meant. `asciinema
-convert` reads what the file says. Lillecarl/pymux#610.
+convert` reads what the file says. Lillecarl/pyterm#612.
 """
 
 from __future__ import annotations

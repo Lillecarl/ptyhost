@@ -3,7 +3,7 @@ What every test of this suite shares: a guard against a test that hangs.
 
 A hung test held `checks.ptyhost-unit` past ten minutes and wrote no
 log at all, so the one fact that mattered -- which await never came --
-was lost when the build was stopped by hand. Lillecarl/pymux#546.
+was lost when the build was stopped by hand. Lillecarl/pyterm#548.
 
 `pymux/tests/conftest.py` holds the same guard, and says why it is not
 pytest's own `faulthandler_timeout`.

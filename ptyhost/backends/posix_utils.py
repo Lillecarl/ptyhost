@@ -36,7 +36,7 @@ class PtyReader:
     This was `prompt_toolkit.input.posix_utils.PosixStdinReader`, which
     reads the keyboard of a person. It is the same arithmetic and a
     different job, and running a program on a pty is not a toolkit's.
-    Lillecarl/pymux#85.
+    Lillecarl/pyterm#87.
 
     :param fd: the file descriptor to read.
     :param errors: what to do with bytes that are not the encoding.
@@ -46,7 +46,7 @@ class PtyReader:
 
     #: What a hot upgrade does with each attribute, as `Process.KEEP`
     #: says. The decoder holds the first bytes of a character the last
-    #: read cut in two; `decoder_state` carries them. Lillecarl/pymux#399.
+    #: read cut in two; `decoder_state` carries them. Lillecarl/pyterm#401.
     KEEP: ClassVar[dict[str, str]] = {
         "fd": "rebuilt",  # the backend's master, which `adopt` hands over
         "errors": "rebuilt",
@@ -117,7 +117,7 @@ class PtyReader:
             # zero bytes, so the test above never fires for one, and
             # `closed` stayed false for the life of the server. A pane
             # whose program had exited read as alive.
-            # Lillecarl/pymux#120.
+            # Lillecarl/pyterm#122.
             self.closed = True
             return b""
 

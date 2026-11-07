@@ -51,7 +51,7 @@ def exec_pipe() -> tuple[int, int]:
     **A caller reads it before it treats the program as running.**
     Until the exec, the pty's foreground group is the fork of the
     caller, so a name read off it is the caller's and not the
-    program's. Lillecarl/pymux#562.
+    program's. Lillecarl/pyterm#564.
     """
     return os.pipe()
 

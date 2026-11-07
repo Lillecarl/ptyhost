@@ -6,7 +6,7 @@ redraw between the two shows the screen half updated. So a full page
 asks for no redraw, unless a sixtieth of a second has gone by since the
 last one, and a write that ends exactly on a page still gets its redraw
 after that long. A short read, which is what a keystroke's echo is,
-asks at once. Lillecarl/pymux#568.
+asks at once. Lillecarl/pyterm#570.
 """
 
 from __future__ import annotations

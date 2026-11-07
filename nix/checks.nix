@@ -12,7 +12,7 @@
   # The python the suite runs on: a virtualenv of ptyhost, what ptyhost
   # declares, and its `test` extra. `default.nix` builds it from
   # `pyproject.toml`, so what a suite may import is what the package
-  # declares and there is no second list here. Lillecarl/pymux#319.
+  # declares and there is no second list here. Lillecarl/pyterm#321.
   testEnv,
   callPackage,
   testSources,
@@ -32,7 +32,7 @@ let
 
   # How long one test may run before `tests/conftest.py` dumps every
   # stack and ends the run. `PTYHOST_HANG_SECONDS` changes it for one
-  # run. Lillecarl/pymux#546.
+  # run. Lillecarl/pyterm#548.
   hangIsSeconds =
     let
       value = builtins.getEnv "PTYHOST_HANG_SECONDS";

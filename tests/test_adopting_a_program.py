@@ -4,7 +4,7 @@ A program that runs already, adopted on its master and its pid.
 An upgrade execs the new build in the server's own process, so every
 program stays its child, and the new image adopts it from the snapshot.
 A program the server is not the parent of still runs: Carl's panes of
-2026-10-22 were forked by the holder that is gone. Lillecarl/pymux#736.
+2026-10-22 were forked by the holder that is gone. Lillecarl/pyterm#738.
 """
 
 from __future__ import annotations

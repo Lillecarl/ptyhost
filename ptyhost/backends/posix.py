@@ -116,7 +116,7 @@ def spawn_backend(
     :param prepare: edits the program's environment. A widget passes
         `pyte.environment.preparing`, because the program draws on the
         widget's screen and not on the terminal the application runs in,
-        and only the widget knows both. Lillecarl/pymux#125.
+        and only the widget knows both. Lillecarl/pyterm#127.
     :param cell: the screen's size of one cell in pixels. It goes into
         the size of the pty, so that a program that draws images reads
         there what "CSI 16 t" gives it. The screen holds that number, so
@@ -171,7 +171,7 @@ class PosixBackend(Backend):
         # **Non-blocking, so nothing here waits on the program.** A
         # program that stops reading fills the pty, and a blocking write
         # holds the whole event loop until it reads again. What the pty
-        # does not take waits in `_unwritten`. Lillecarl/pymux#563.
+        # does not take waits in `_unwritten`. Lillecarl/pyterm#565.
         os.set_blocking(master, False)
         self.master: int | None = master
         self.slave: int | None = slave
@@ -222,7 +222,7 @@ class PosixBackend(Backend):
         """
         A program that runs already, on the pty `master` is the master of:
         one an earlier image of this process forked, across an exec, or one
-        another process forked. `start` forks nothing for it. Lillecarl/pymux#736.
+        another process forked. `start` forks nothing for it. Lillecarl/pyterm#738.
 
         Raises `OSError` when `master` is no pty master. A number is only
         what the snapshot wrote down, and a wrong one would send the
@@ -239,7 +239,7 @@ class PosixBackend(Backend):
         """
         A program that ended before this image, in a pane that stays
         (`remain-on-exit`). It has no pty, and `start` watches nothing.
-        Lillecarl/pymux#738.
+        Lillecarl/pyterm#740.
         """
         backend = cls(None, cell=cell)
         backend.close()
@@ -284,7 +284,7 @@ class PosixBackend(Backend):
         The reader says so once a read hits the end of the pty, which
         the reap makes reachable by closing the slave (`_reap`). The
         child may still be alive then, and nothing more comes from it.
-        Lillecarl/pymux#120.
+        Lillecarl/pyterm#122.
         """
         return self._reader.closed
 
@@ -439,7 +439,7 @@ class PosixBackend(Backend):
             self.pid = pid
 
             # Running only once it has exec'd: until then the pty's
-            # foreground is this fork. Lillecarl/pymux#562. **A blocking
+            # foreground is this fork. Lillecarl/pyterm#564. **A blocking
             # read, not an await**: a caller builds a pane around this
             # start, and a yield here lets a program that ends at once be
             # reaped, and its pane removed, before the caller has placed
@@ -513,7 +513,7 @@ class PosixBackend(Backend):
         The pump calls this when a read says the file has ended. The
         reap cannot: what the kernel still holds for the master side
         is read on the turns of the loop after it, and closing there
-        would throw that away. Lillecarl/pymux#121.
+        would throw that away. Lillecarl/pyterm#123.
         """
         if self.master is not None:
             # A task parked on the fd -- the writer, waiting for the
@@ -567,14 +567,14 @@ class PosixBackend(Backend):
         **The slave side goes and the master stays.** Closing both at
         once drops whatever the kernel still holds: the error a build
         printed as it died was lost about one time in twelve, whenever
-        the loop had not turned since the write. Lillecarl/pymux#121.
+        the loop had not turned since the write. Lillecarl/pyterm#123.
 
         Closing the slave is what makes the end of the file reachable.
         While this process holds it open a read of the master answers
         with nothing; with it closed the pump hands over what is left
         and then an `EIO`, which `PtyReader` takes as the end. That
         read is also what makes `is_terminated` true.
-        Lillecarl/pymux#120.
+        Lillecarl/pyterm#122.
 
         The `finally` covers the scope going away first: a child a
         cancelled scope leaves behind is killed rather than kept, so

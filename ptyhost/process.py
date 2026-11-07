@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 #: How long a write that is still arriving may go without a redraw. A
 #: read that fills its page means more of the same write is waiting,
 #: and a redraw between the two shows the screen half updated
-#: (Lillecarl/pymux#568). A flood still draws this often.
+#: (Lillecarl/pyterm#570). A flood still draws this often.
 _REDRAW_AT_LEAST_EVERY = 1 / 60
 
 
@@ -49,7 +49,7 @@ class Process:
 
     #: What a hot upgrade does with each attribute: "saved", "rebuilt"
     #: or "dropped", as `pyte.keep.Keep` defines them. Strings, because
-    #: ptyhost does not import pyte. Lillecarl/pymux#399.
+    #: ptyhost does not import pyte. Lillecarl/pyterm#401.
     KEEP: ClassVar[dict[str, str]] = {
         "backend": "saved",
         "sx": "saved",
@@ -212,7 +212,7 @@ class Process:
         won. With cmatrix in a window nobody looked at and one
         animating pane in the window somebody did, polling took 100%
         of a core for 5 frames in 5s, and one yield took 12% for 31.
-        Lillecarl/pymux#253.
+        Lillecarl/pyterm#255.
         """
         page = self.backend.read_text(4096)
         assert isinstance(page, str), "got %r" % type(page)

@@ -1,7 +1,7 @@
 # What ptyhost is and what it needs. `setup.py` used to say this, and a build
 # read it by running it. Nix reads this file instead, at evaluation time, so
 # the dependency list here is the one the package is built from and there is
-# no second copy in a `.nix` file to fall out of step. Lillecarl/pymux#319.
+# no second copy in a `.nix` file to fall out of step. Lillecarl/pyterm#321.
 [project]
 name = "ptyhost"
 version = "0.1"
@@ -18,7 +18,7 @@ requires-python = ">=3.14"
 #
 # The floor is the collection's: pymux needs 4.7 for `notify_closing`,
 # and one floor for the collection beats one per package.
-# Lillecarl/pymux#87.
+# Lillecarl/pyterm#89.
 #
 # Windows has no pty, so it needs a library to pretend. The marker is
 # what `setup.py` spelled as an `if` around an append, and a marker is
@@ -48,7 +48,7 @@ Homepage = "https://github.com/Lillecarl/ptyhost"
 Documentation = "https://lillecarl.github.io/ptyhost/"
 # Work happens in the monorepo this repository is exported from.
 Source = "https://github.com/Lillecarl/pyterm"
-Issues = "https://github.com/Lillecarl/pymux/issues"
+Issues = "https://github.com/Lillecarl/pyterm/issues"
 
 [project.scripts]
 # A recorder, not a test. A fault that only a real program shows, on the

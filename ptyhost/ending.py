@@ -1,5 +1,5 @@
 """
-Say in the log which signal ended this process. Lillecarl/pymux#728.
+Say in the log which signal ended this process. Lillecarl/pyterm#730.
 
 A server that a signal ends wrote nothing about it: the log
 stopped, and only an empty stack file said it was no crash. Now each

@@ -1,6 +1,6 @@
 """
 A process that a signal ends says which, and dies of it all the same.
-Lillecarl/pymux#728.
+Lillecarl/pyterm#730.
 """
 
 from __future__ import annotations

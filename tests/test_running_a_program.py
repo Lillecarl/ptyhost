@@ -10,7 +10,7 @@ written that way because what a program wrote just before it exited
 was sometimes lost: the reaper closed the pty without draining it, so
 a test that ended its program at once failed about once in a dozen
 runs for a reason that had nothing to do with what it asked. The reap
-drains now (Lillecarl/pymux#121), and `linger=False` says so where it
+drains now (Lillecarl/pyterm#123), and `linger=False` says so where it
 is the point.
 """
 
@@ -188,7 +188,7 @@ async def test_the_last_thing_a_program_writes_arrives(run):
     often the thing a person wanted: the error a build printed as it
     died, the summary a test runner writes on its last line. Twelve
     runs, because once is not a measurement of a race.
-    Lillecarl/pymux#121.
+    Lillecarl/pyterm#123.
     """
     said = []
     ended = anyio.Event()
@@ -217,7 +217,7 @@ async def test_a_program_that_ended_is_terminated():
     `_waitpid` takes the reader away and closes the pty. So a pane
     whose program had exited read as alive for the life of the server,
     and `#{pane_dead}` answered "0" forever.
-    Lillecarl/pymux#120.
+    Lillecarl/pyterm#122.
     """
     said = []
     ended = anyio.Event()
@@ -258,7 +258,7 @@ async def test_a_program_that_ends_while_suspended_waits_for_the_resume():
     meantime does not get to break that: its last words wait for the
     resume, the way anything else it wrote does.
 
-    The reap makes the end of the file reachable (Lillecarl/pymux#121),
+    The reap makes the end of the file reachable (Lillecarl/pyterm#123),
     so the reader has something to give the moment it goes back on the
     loop. It may not go back by itself.
     """
@@ -286,7 +286,7 @@ async def test_several_programs_that_nobody_watches_are_still_read():
 
     pymux froze entirely on two panes of Claude Code for exactly that
     reason, for as long as a deadline of `time.time() + 1` was read as
-    a duration and landed fifty-seven years out. Lillecarl/pymux#122.
+    a duration and landed fifty-seven years out. Lillecarl/pyterm#124.
     """
     watched = [[] for _ in range(4)]
 
@@ -315,7 +315,7 @@ async def test_a_program_starts_in_the_environment_and_directory_it_was_given(tm
     """
     The edit runs here and not in the child, so this process keeps its
     own environment, and the program is found on the PATH it was given.
-    Lillecarl/pymux#553.
+    Lillecarl/pyterm#555.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -389,7 +389,7 @@ async def test_a_started_program_has_already_exec_d():
     """
     `start` returns once the child has exec'd, so the name read off the
     pty's foreground is the program's and never the fork's.
-    Lillecarl/pymux#562.
+    Lillecarl/pyterm#564.
     """
     sleep = shutil.which("sleep")
     if sleep is None:
@@ -433,7 +433,7 @@ async def test_a_write_to_a_program_that_never_reads_does_not_wait():
     """
     The pty fills, and what does not fit waits beside it. A blocking
     write here would hold the caller's whole loop until the program
-    read. Lillecarl/pymux#563.
+    read. Lillecarl/pyterm#565.
     """
     sleep = shutil.which("sleep")
     if sleep is None:
@@ -479,7 +479,7 @@ async def test_a_close_while_the_writer_waits_ends_the_writer(monkeypatch):
 
 
 async def test_what_did_not_fit_reaches_the_program():
-    "Every byte, in order, once the program reads. Lillecarl/pymux#563."
+    "Every byte, in order, once the program reads. Lillecarl/pyterm#565."
     data = bytes(range(256)) * 800
     said = []
     async with anyio.create_task_group() as task_group:
@@ -503,7 +503,7 @@ async def test_what_did_not_fit_reaches_the_program():
 
 
 async def test_input_written_waits_for_the_program_to_read():
-    "A writer of much can wait for room before it writes more. Lillecarl/pymux#914."
+    "A writer of much can wait for room before it writes more. Lillecarl/pyterm#916."
     data = b"x" * (1 << 20)
     said = []
     async with anyio.create_task_group() as task_group:
@@ -536,7 +536,7 @@ async def test_a_running_program_says_where_it_is(tmp_path):
     """
     The directory a pane's program stands in, which `#{pane_current_path}`
     and `split-window -c` read. /proc on Linux, `proc_pidinfo` on macOS.
-    Lillecarl/pymux#565.
+    Lillecarl/pyterm#567.
     """
     sleep = shutil.which("sleep")
     if sleep is None:

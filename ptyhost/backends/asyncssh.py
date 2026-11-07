@@ -65,7 +65,7 @@ class AsyncSSHBackend(Backend):
         credentials, the command, the pty -- and a session that was
         never made has ended as surely as one that exited. Left
         pending, a caller waiting for the program to end waits for
-        ever with nothing in any log. Lillecarl/pymux#265.
+        ever with nothing in any log. Lillecarl/pyterm#267.
         """
         task_group.start_soon(self._open_session)
         task_group.start_soon(self._feed_arrived)

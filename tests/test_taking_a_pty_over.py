@@ -2,8 +2,8 @@
 What a server checks and keeps when it takes a pty over.
 
 A number is only what the snapshot names, and a wrong one would send
-a pane's keystrokes into some other file. Lillecarl/pymux#399,
-Lillecarl/pymux#553.
+a pane's keystrokes into some other file. Lillecarl/pyterm#401,
+Lillecarl/pyterm#555.
 """
 
 from __future__ import annotations

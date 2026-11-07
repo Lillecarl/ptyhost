@@ -1,6 +1,6 @@
 """
 A program a person runs starts at normal priority, whatever pymux was
-reniced to. Lillecarl/pymux#673.
+reniced to. Lillecarl/pyterm#675.
 
 The sandbox may not lower a niceness, so a raised one is what
 `os.getpriority` answers here.

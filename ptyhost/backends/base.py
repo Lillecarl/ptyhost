@@ -28,7 +28,7 @@ class Backend(metaclass=abc.ABCMeta):
     #: **It is here so that a reader can ask.** `pymux` read it with
     #: `getattr(backend, "pid", None)`, which answers the same for a
     #: backend that has no id and for a field somebody renamed.
-    #: Lillecarl/pymux#138.
+    #: Lillecarl/pyterm#140.
     pid: int | None = None
 
     #: Set when the program ends. An `anyio.Event`: `Process` waits on
@@ -39,7 +39,7 @@ class Backend(metaclass=abc.ABCMeta):
     #:
     #: **It is here so that a reader can ask.** `pid` above is the same
     #: shape for the same reason: a field somebody renamed answers the
-    #: same as a backend that has no id. Lillecarl/pymux#138.
+    #: same as a backend that has no id. Lillecarl/pyterm#140.
     ready_f = None
 
     def close(self):
@@ -50,7 +50,7 @@ class Backend(metaclass=abc.ABCMeta):
         A backend that has nothing to let go of does nothing here. The
         one that has is the pty: its master side outlives the program,
         because what the kernel still holds is read on the turns of
-        the loop after the child is reaped. Lillecarl/pymux#121.
+        the loop after the child is reaped. Lillecarl/pyterm#123.
         """
 
     def add_input_ready_callback(self, callback):

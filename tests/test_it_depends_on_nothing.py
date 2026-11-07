@@ -3,7 +3,7 @@ What this package may import.
 
 `ptyhost` exists so that two terminal widgets can share one pty layer
 without either of them dragging its toolkit in behind it
-(Lillecarl/pymux#85). That only holds while this package depends on
+(Lillecarl/pyterm#87). That only holds while this package depends on
 anyio and nothing else, and nothing but a habit would keep it that way.
 
 So this reads the imports of every module and holds them to the rule.
@@ -130,7 +130,7 @@ _STANDARD_LIBRARY = {
     "sys",
     "termios",
     # Whether a handler can be installed here: only on the main thread.
-    # Lillecarl/pymux#728.
+    # Lillecarl/pyterm#730.
     "threading",
     "time",
     "traceback",

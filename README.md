@@ -3,7 +3,7 @@
 > This repository is a copy. Work on ptyhost happens in
 > [pyterm](https://github.com/Lillecarl/pyterm), which exports its `ptyhost/`
 > directory here on every push. Send changes there, and issues to
-> [Lillecarl/pymux](https://github.com/Lillecarl/pymux/issues).
+> [Lillecarl/pyterm](https://github.com/Lillecarl/pyterm/issues).
 > The docs are at <https://lillecarl.github.io/ptyhost/>.
 
 <!-- The lines above are pyterm's nix/shared/readme-head.md, written by sync-sources. -->
@@ -36,7 +36,7 @@ anyio.run(main)
 It came out of [ptterm], which is a terminal widget for
 prompt-toolkit. A second widget for [Textual] needs the same pty layer
 and must not pull prompt-toolkit in behind it, so the layer needed a
-home that neither widget owns. Lillecarl/pymux#85 holds the argument.
+home that neither widget owns. Lillecarl/pyterm#87 holds the argument.
 
 ## What is in it
 
