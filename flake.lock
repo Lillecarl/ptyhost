@@ -73,11 +73,11 @@
         "qutebrowser": "qutebrowser"
       },
       "locked": {
-        "lastModified": 1794046533,
-        "narHash": "sha256-sc51SJ6zGta5yTBN5IqWiHWXuVNOBZ6p1sREWYnqiUI=",
+        "lastModified": 1794048152,
+        "narHash": "sha256-t0aS7lXFtYyiQYXZ8hpVCBq5XhBbyad3pJdIQRQoUOE=",
         "owner": "Lillecarl",
         "repo": "pyterm",
-        "rev": "eef7948f24a6cfef386ffd9268c4d21c44121d92",
+        "rev": "9e3886c96f294eb301a80a3624b648ff8af18560",
         "type": "github"
       },
       "original": {
