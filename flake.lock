@@ -17,11 +17,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1791637130,
-        "narHash": "sha256-TuvwvSjJrpqyIYdjhQ7Wu+ADVfeOpO2Um21/V7TOubw=",
+        "lastModified": 1794495034,
+        "narHash": "sha256-E0hYoioqUtM2XmPPvYYpJgdADF5AW9oOoPSEiM9dTHQ=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "ca1659429c950a11a565b5764e37a1b704e17ec8",
+        "rev": "2074cc672349f14240fb7ea90d509e0b643e9dd4",
         "type": "github"
       },
       "original": {
@@ -73,11 +73,11 @@
         "qutebrowser": "qutebrowser"
       },
       "locked": {
-        "lastModified": 1794673593,
-        "narHash": "sha256-R35urfHpiKL6kF4trniqW0qJZSHrK3sORmu3eCBS0z0=",
+        "lastModified": 1794674116,
+        "narHash": "sha256-5riK7PNGYhpL0CdYGfQAmqsj/XN2wcY5E/GueZazQoY=",
         "owner": "Lillecarl",
         "repo": "pyterm",
-        "rev": "678c53162205179ad614d16c81d5f7566dc0d911",
+        "rev": "3109bc046aa765bfb66659faa57cabd716cb72de",
         "type": "github"
       },
       "original": {
