@@ -208,6 +208,39 @@ async def test_the_last_thing_a_program_writes_arrives(run):
             process.kill()
 
 
+async def test_the_end_is_reported_after_the_last_word():
+    """
+    The reap comes before the pump reads what the program wrote last,
+    and the end waits for it: a program that rang its bell and ended was
+    heard to end first, under load. The pump is parked here, so the reap
+    is certain to come first. Lillecarl/pyterm#1000.
+    """
+    said = []
+    heard_at_the_end = []
+    async with anyio.create_task_group() as task_group:
+        process = await running(
+            "import sys; input(); sys.stdout.write('the last word'); sys.stdout.flush()",
+            said,
+            lambda: heard_at_the_end.append("".join(said)),
+            linger=False,
+            task_group=task_group,
+        )
+        try:
+            process.backend.pause_reading()
+            process.write_input("go\n")
+            with anyio.fail_after(TIMEOUT):
+                await process.backend.ready_f.wait()
+            await anyio.sleep(0.2)
+            assert heard_at_the_end == [], "the end came with the last word unread"
+            process.backend.resume_reading()
+            with anyio.fail_after(TIMEOUT):
+                while not heard_at_the_end:
+                    await anyio.sleep(TICK)
+            assert "the last word" in heard_at_the_end[0]
+        finally:
+            process.kill()
+
+
 async def test_a_program_that_ended_is_terminated():
     """
     `is_terminated` says there is nothing more to read.

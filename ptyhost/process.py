@@ -283,6 +283,14 @@ class Process:
         watcher ends.
         """
         await self.backend.ready_f.wait()
+        # Not while its last words wait unread: the reap comes before the
+        # pump reads them, and a program that rang and ended was heard to
+        # end first, under load. tmux's `window_pane_destroy_ready` asks
+        # the same of FIONREAD. Not an end of file: a background child
+        # may hold the pty for ever. Not while suspended: copy mode keeps
+        # the output unread on purpose. Lillecarl/pyterm#1000.
+        while self.backend.output_is_waiting and not self.suspended:
+            await anyio.sleep(0.005)
         try:
             self.done_callback()
         except Exception:
