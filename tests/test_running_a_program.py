@@ -23,6 +23,7 @@ import sys
 
 import anyio
 import pytest
+from fairclock import anyio as fair_anyio
 
 from ptyhost import Process
 from ptyhost.backends.posix import PosixBackend, spawn_of
@@ -54,7 +55,7 @@ def names_of(program: str) -> set[str]:
 async def until(said, text: str) -> None:
     "Wait for `text` to turn up in what the program wrote."
     try:
-        with anyio.fail_after(TIMEOUT):
+        with fair_anyio.fail_after(TIMEOUT):
             while text not in "".join(said):
                 await anyio.sleep(TICK)
     except TimeoutError:
@@ -157,7 +158,7 @@ async def test_the_end_of_a_program_is_reported():
     async with anyio.create_task_group() as task_group:
         process = await running("pass", said, ended.set, linger=False, task_group=task_group)
         try:
-            with anyio.fail_after(TIMEOUT):
+            with fair_anyio.fail_after(TIMEOUT):
                 await ended.wait()
         finally:
             process.kill()
@@ -168,7 +169,7 @@ async def test_the_end_of_a_program_says_how_it_ended(program, code):
     ended = anyio.Event()
     async with anyio.create_task_group() as task_group:
         process = await running(program, [], ended.set, linger=False, task_group=task_group)
-        with anyio.fail_after(TIMEOUT):
+        with fair_anyio.fail_after(TIMEOUT):
             await ended.wait()
         assert process.backend.returncode == code
 
@@ -201,7 +202,7 @@ async def test_the_last_thing_a_program_writes_arrives(run):
             task_group=task_group,
         )
         try:
-            with anyio.fail_after(TIMEOUT):
+            with fair_anyio.fail_after(TIMEOUT):
                 await ended.wait()
             await until(said, "the last word")
         finally:
@@ -228,12 +229,12 @@ async def test_the_end_is_reported_after_the_last_word():
         try:
             process.backend.pause_reading()
             process.write_input("go\n")
-            with anyio.fail_after(TIMEOUT):
+            with fair_anyio.fail_after(TIMEOUT):
                 await process.backend.ready_f.wait()
             await anyio.sleep(0.2)
             assert heard_at_the_end == [], "the end came with the last word unread"
             process.backend.resume_reading()
-            with anyio.fail_after(TIMEOUT):
+            with fair_anyio.fail_after(TIMEOUT):
                 while not heard_at_the_end:
                     await anyio.sleep(TICK)
             assert "the last word" in heard_at_the_end[0]
@@ -257,9 +258,9 @@ async def test_a_program_that_ended_is_terminated():
     async with anyio.create_task_group() as task_group:
         process = await running("pass", said, ended.set, linger=False, task_group=task_group)
         try:
-            with anyio.fail_after(TIMEOUT):
+            with fair_anyio.fail_after(TIMEOUT):
                 await ended.wait()
-            with anyio.fail_after(1.0):
+            with fair_anyio.fail_after(1.0):
                 while not process.is_terminated:
                     await anyio.sleep(TICK)
         finally:
@@ -502,7 +503,7 @@ async def test_a_close_while_the_writer_waits_ends_the_writer(monkeypatch):
 
     monkeypatch.setattr(anyio, "wait_writable", writable_then_closed)
     try:
-        with anyio.fail_after(5):
+        with fair_anyio.fail_after(5):
             await backend._write_the_rest()
     finally:
         if backend.slave is not None:
@@ -557,7 +558,7 @@ async def test_input_written_waits_for_the_program_to_read():
             process.backend.write_bytes(data)
             if sys.platform.startswith("linux"):
                 assert not process.backend._written.is_set()
-            with anyio.fail_after(10):
+            with fair_anyio.fail_after(10):
                 await process.input_written()
             assert not process.backend._unwritten
             await until(said, "GOT %d" % (len(data),))

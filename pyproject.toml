@@ -41,6 +41,8 @@ test = [
     # pulls it in at run time -- a person who wants a remote pane
     # installs it. A test that drives that backend has to have it.
     "asyncssh",
+    # Deadlines in fair time. Lillecarl/pyterm#1008.
+    "fairclock",
 ]
 
 [project.urls]
@@ -359,3 +361,4 @@ select = [
 # measured on pymux, an installed sibling sorts one way in the dev
 # shell and the other in the sandbox.
 known-first-party = ["ptyhost"]
+known-third-party = ["fairclock"]

@@ -19,6 +19,7 @@ import time
 
 import anyio
 import pytest
+from fairclock import anyio as fair_anyio
 from test_adopting_a_program import fork_on_a_pty
 from test_running_a_program import until
 
@@ -50,7 +51,7 @@ async def started(backend: PosixBackend, said: list[str], *, task_group) -> Proc
 
 
 async def ended(process: Process) -> None:
-    with anyio.fail_after(TIMEOUT):
+    with fair_anyio.fail_after(TIMEOUT):
         await process.backend.ready_f.wait()
 
 

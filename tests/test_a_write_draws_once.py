@@ -12,6 +12,7 @@ asks at once. Lillecarl/pyterm#570.
 from __future__ import annotations
 
 import anyio
+from fairclock import anyio as fair_anyio
 
 import ptyhost.process
 from ptyhost import Process
@@ -65,7 +66,7 @@ async def test_full_pages_ask_once_at_the_end_of_the_write():
 
 
 async def test_a_write_that_ends_on_a_page_is_still_drawn():
-    with anyio.fail_after(5):
+    with fair_anyio.fail_after(5):
         async with anyio.create_task_group() as task_group:
             process, backend, asked = a_process(task_group)
             process._invalidated_at = ptyhost.process.time.monotonic()

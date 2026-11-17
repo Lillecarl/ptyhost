@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 
 import anyio
+from fairclock import anyio as fair_anyio
 
 from ptyhost.backends.asyncssh import AsyncSSHBackend
 
@@ -40,7 +41,7 @@ async def test_a_refused_session_ends_the_wait(caplog):
     with caplog.at_level(logging.ERROR):
         async with anyio.create_task_group() as task_group:
             await backend.start(task_group)
-            with anyio.fail_after(5.0):
+            with fair_anyio.fail_after(5.0):
                 await backend.ready_f.wait()
 
     assert "nobody listening" in caplog.text, caplog.text
@@ -65,7 +66,7 @@ async def test_a_session_that_never_answers_dies_with_its_scope():
     backend = AsyncSSHBackend(SlowConnection())
     async with anyio.create_task_group() as task_group:
         await backend.start(task_group)
-        with anyio.fail_after(5.0):
+        with fair_anyio.fail_after(5.0):
             await started.wait()
         # Leaving the scope waits for its tasks, and the opener is
         # still asking: cancel it first, the way abandoning a program

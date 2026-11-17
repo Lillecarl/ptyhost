@@ -14,6 +14,7 @@ import sys
 
 import anyio
 import pytest
+from fairclock import anyio as fair_anyio
 
 from ptyhost import Process
 from ptyhost.backends.posix import PosixBackend
@@ -36,7 +37,7 @@ ECHO = (
 
 async def until(said, text: str) -> None:
     try:
-        with anyio.fail_after(TIMEOUT):
+        with fair_anyio.fail_after(TIMEOUT):
             while text not in "".join(said):
                 await anyio.sleep(TICK)
     except TimeoutError:
@@ -89,7 +90,7 @@ async def test_an_adopted_child_talks_and_ends_with_its_code():
         process.write_input("ping\n")
         await until(said, "<ping>")
         process.write_input("exit 4\n")
-        with anyio.fail_after(TIMEOUT):
+        with fair_anyio.fail_after(TIMEOUT):
             await ended.wait()
     assert process.backend.returncode == 4
 
@@ -98,13 +99,13 @@ async def test_a_child_that_ended_before_the_adoption_ends_at_once():
     "It ended during the exec: a zombie of the new image, reaped before any thread waits."
     pid, master = fork_on_a_pty("print('last words', flush=True)\nraise SystemExit(5)\n")
     # Ended, and left unreaped.
-    with anyio.fail_after(TIMEOUT):
+    with fair_anyio.fail_after(TIMEOUT):
         await anyio.to_thread.run_sync(os.waitid, os.P_PID, pid, os.WEXITED | os.WNOWAIT)
     said: list[str] = []
     ended = anyio.Event()
     async with anyio.create_task_group() as task_group:
         process = await _adopted(master, pid, True, said, ended, task_group)
-        with anyio.fail_after(TIMEOUT):
+        with fair_anyio.fail_after(TIMEOUT):
             await ended.wait()
         await until(said, "last words")
     assert process.backend.returncode == 5
@@ -121,7 +122,7 @@ async def test_a_program_of_another_parent_lives_on_under_its_adopter():
         process.write_input("ping\n")
         await until(said, "<ping>")
         process.kill()
-        with anyio.fail_after(TIMEOUT):
+        with fair_anyio.fail_after(TIMEOUT):
             await ended.wait()
     assert process.backend.returncode is None
 
