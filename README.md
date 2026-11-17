@@ -86,6 +86,7 @@ each source claims one job:
 | [pyterm-pytest](https://lillecarl.github.io/pyterm-pytest/) | the test equipment the suites share |
 | [deferimport](https://lillecarl.github.io/deferimport/) | make imports lazy, without a keyword |
 | [ptkhx](https://lillecarl.github.io/ptkhx/) | Helix's modal editing, for a prompt_toolkit buffer |
+| [fairclock](https://lillecarl.github.io/fairclock/) | deadlines that leave the machine's load out |
 
 [pyterm's site](https://lillecarl.github.io/pyterm/) holds every source's
 docs.
