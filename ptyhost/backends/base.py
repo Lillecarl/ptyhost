@@ -42,6 +42,11 @@ class Backend(metaclass=abc.ABCMeta):
     #: same as a backend that has no id. Lillecarl/pyterm#140.
     ready_f = None
 
+    #: Set when the pump stops: nothing more will be handed over, so
+    #: output that still waits never will be. An `anyio.Event`, or
+    #: `None` for a backend whose pump never stops.
+    drained = None
+
     def close(self):
         """
         Let go of what carries the program's output, once a read says

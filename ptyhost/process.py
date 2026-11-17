@@ -65,6 +65,7 @@ class Process:
         "_owed": "dropped",
         "_task_group": "dropped",
         "_holding_a_page": "dropped",
+        "_waiting_changed": "dropped",
     }
 
     def __init__(
@@ -99,6 +100,11 @@ class Process:
 
         #: Whether `_read` holds a page it read and has not fed yet.
         self._holding_a_page = False
+        #: Set, and let go, when `output_is_waiting` or `suspended` may
+        #: have changed: `_watch_end` waits on it instead of polling. Made
+        #: only by that wait: the first `anyio.Event` imports anyio's
+        #: backend, and `checks.ptterm-footprint` counts that in a screen.
+        self._waiting_changed: anyio.Event | None = None
 
         # Create terminal interface.
         self.backend.add_input_ready_callback(self._read)
@@ -219,17 +225,25 @@ class Process:
 
         # Feed directly, if this process has priority. (That is when this
         # pane has the focus in any of the clients.)
-        if self.has_priority():
-            self._feed(page)
+        try:
+            if self.has_priority():
+                self._feed(page)
 
-        # Otherwise, postpone processing until we have CPU time available.
-        else:
-            self._holding_a_page = True
-            try:
-                await anyio.lowlevel.checkpoint()
-            finally:
-                self._holding_a_page = False
-            self._feed(page)
+            # Otherwise, postpone processing until we have CPU time available.
+            else:
+                self._holding_a_page = True
+                try:
+                    await anyio.lowlevel.checkpoint()
+                finally:
+                    self._holding_a_page = False
+                self._feed(page)
+        finally:
+            self._waiting_may_have_changed()
+
+    def _waiting_may_have_changed(self) -> None:
+        if self._waiting_changed is not None:
+            self._waiting_changed.set()
+            self._waiting_changed = None
 
     @property
     def output_is_waiting(self) -> bool:
@@ -273,6 +287,15 @@ class Process:
             self._invalidated_at = time.monotonic()
             self.invalidate()
 
+    def _last_words_wait(self) -> bool:
+        drained = self.backend.drained
+        unread = self.backend.output_is_waiting and not (drained is not None and drained.is_set())
+        return (self._holding_a_page or unread) and not self.suspended
+
+    async def _wake_when_drained(self) -> None:
+        await self.backend.drained.wait()
+        self._waiting_may_have_changed()
+
     async def _watch_end(self) -> None:
         """
         Fire `done_callback` when the program ends.
@@ -288,9 +311,20 @@ class Process:
         # end first, under load. tmux's `window_pane_destroy_ready` asks
         # the same of FIONREAD. Not an end of file: a background child
         # may hold the pty for ever. Not while suspended: copy mode keeps
-        # the output unread on purpose. Lillecarl/pyterm#1000.
-        while self.backend.output_is_waiting and not self.suspended:
-            await anyio.sleep(0.005)
+        # the output unread on purpose. A page `_read` holds for a turn
+        # counts too: the pty is empty then. Lillecarl/pyterm#987.
+        if self._last_words_wait():
+            async with anyio.create_task_group() as group:
+                # The pump reads what waits, and each read wakes this. The
+                # read of the end of file wakes it too early: the end polls
+                # readable until the pump stops and closes the master.
+                if self.backend.drained is not None:
+                    group.start_soon(self._wake_when_drained)
+                while self._last_words_wait():
+                    if self._waiting_changed is None:
+                        self._waiting_changed = anyio.Event()
+                    await self._waiting_changed.wait()
+                group.cancel_scope.cancel()
         try:
             self.done_callback()
         except Exception:
@@ -303,6 +337,7 @@ class Process:
         if not self.suspended:
             self.suspended = True
             self.backend.pause_reading()
+            self._waiting_may_have_changed()
 
     def resume(self) -> None:
         """
@@ -311,6 +346,7 @@ class Process:
         if self.suspended:
             self.backend.resume_reading()
             self.suspended = False
+            self._waiting_may_have_changed()
 
     def get_cwd(self) -> str:
         """

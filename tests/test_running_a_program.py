@@ -214,7 +214,7 @@ async def test_the_end_is_reported_after_the_last_word():
     The reap comes before the pump reads what the program wrote last,
     and the end waits for it: a program that rang its bell and ended was
     heard to end first, under load. The pump is parked here, so the reap
-    is certain to come first. Lillecarl/pyterm#1000.
+    is certain to come first. Lillecarl/pyterm#987.
     """
     said = []
     heard_at_the_end = []
@@ -238,6 +238,39 @@ async def test_the_end_is_reported_after_the_last_word():
                 while not heard_at_the_end:
                     await anyio.sleep(TICK)
             assert "the last word" in heard_at_the_end[0]
+        finally:
+            process.kill()
+
+
+async def test_the_end_waits_for_a_page_held_for_a_turn():
+    """
+    A pane with no focus reads a page and feeds it one turn later, and
+    the pty is empty in between. The end waits for that page too.
+    The hold is pinned open here, so the end is certain to see it.
+    Lillecarl/pyterm#987.
+    """
+    said = []
+    heard_at_the_end = []
+    async with anyio.create_task_group() as task_group:
+        process = await running(
+            "import sys; sys.stdout.write('the last word'); sys.stdout.flush()",
+            said,
+            lambda: heard_at_the_end.append("".join(said)),
+            linger=False,
+            task_group=task_group,
+        )
+        try:
+            process._holding_a_page = True
+            with fair_anyio.fail_after(TIMEOUT):
+                await process.backend.ready_f.wait()
+            await until(said, "the last word")
+            await anyio.sleep(0.2)
+            assert heard_at_the_end == [], "the end came with a page held"
+            process._holding_a_page = False
+            process._waiting_may_have_changed()
+            with fair_anyio.fail_after(TIMEOUT):
+                while not heard_at_the_end:
+                    await anyio.sleep(TICK)
         finally:
             process.kill()
 

@@ -156,7 +156,7 @@ class PosixBackend(Backend):
         "returncode": "saved",  # none while it runs; a pane that stays keeps it
         "_task_group": "dropped",  # the next server's `start` names its own
         "parent": "rebuilt",  # the snapshot's own column says it
-        "_drained": "rebuilt",
+        "drained": "rebuilt",
     }
 
     def __init__(self, spawn: Callable[[], Spawn] | None, cell=(0, 0), pty: tuple[int, int | None] | None = None):
@@ -210,8 +210,7 @@ class PosixBackend(Backend):
         #: for it. An upgrade's exec keeps the pid, so a program stays its
         #: child; one another process forked never is.
         self.parent = True
-        #: The pump read the end of the file.
-        self._drained = anyio.Event()
+        self.drained = anyio.Event()
 
         #: The group that watches the program, which `hang_up` starts
         #: the SIGKILL that follows its SIGHUP in.
@@ -558,7 +557,7 @@ class PosixBackend(Backend):
                     await callback()
         finally:
             self.close()
-            self._drained.set()
+            self.drained.set()
 
     async def _reap(self) -> None:
         """
@@ -591,7 +590,7 @@ class PosixBackend(Backend):
         try:
             if not self.parent:
                 assert self.pid is not None
-                await stranger_ended(self.pid, self._drained)
+                await stranger_ended(self.pid, self.drained)
             elif self.spawn is not None or not self._reaped_now():
                 # Abandoned on a cancel, so the kill below runs at once and
                 # the thread's wait then returns: a job no `stop` kills
