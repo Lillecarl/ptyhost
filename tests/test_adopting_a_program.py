@@ -151,6 +151,22 @@ def test_a_program_on_pipes_is_this_process_child():
     assert os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]) == 3
 
 
+def test_a_program_on_pipes_inherits_the_fds_passed_and_no_other():
+    "A Wayland program gets its connection's socket so, as `WAYLAND_SOCKET`."
+    passed, other = os.pipe(), os.pipe()
+    for fd in (*passed, *other):
+        os.set_inheritable(fd, True)
+    script = "echo hi >&%d; echo no >&%d 2>/dev/null || echo closed" % (passed[1], other[1])
+    pid, stdout, stderr = fork_on_pipes(Spawn(["/bin/sh", "-c", script], dict(os.environ), passed=(passed[1],)))
+    os.close(passed[1])
+    os.close(other[1])
+    assert _read_all(passed[0]) == b"hi\n"
+    assert _read_all(other[0]) == b""
+    assert _read_all(stdout) == b"closed\n"
+    _read_all(stderr)
+    os.waitpid(pid, 0)
+
+
 def test_a_program_on_pipes_that_cannot_start_says_why():
     with pytest.raises(OSError, match="no-such-program"):
         fork_on_pipes(Spawn(["no-such-program"], dict(os.environ)))

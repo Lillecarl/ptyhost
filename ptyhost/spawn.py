@@ -35,12 +35,14 @@ class Spawn(NamedTuple):
     a process that holds the ptys can fork from one of these.
 
     `command[0]` is looked up on the PATH of `environment`, not on the
-    PATH of whoever forks.
+    PATH of whoever forks. The program inherits the fds `passed` under
+    their own numbers, and no other.
     """
 
     command: list[str]
     environment: dict[str, str]
     directory: str | None = None
+    passed: tuple[int, ...] = ()
 
 
 def exec_pipe() -> tuple[int, int]:
@@ -101,7 +103,7 @@ def run_in_child(spawn: Spawn, master: int, slave: int, exec_end: int) -> NoRetu
             os._exit(1)  # Not on the pty yet, so nobody would read why.
 
         try:
-            _close_file_descriptors(keep=exec_end)
+            _close_file_descriptors(exec_end, spawn.passed)
             at_normal_priority()
             if spawn.directory is not None:
                 with contextlib.suppress(OSError):
@@ -163,7 +165,7 @@ def run_on_pipes(spawn: Spawn, stdout: int, stderr: int, exec_end: int) -> NoRet
             os.dup2(null, 0)
             os.dup2(stdout, 1)
             os.dup2(stderr, 2)
-            _close_file_descriptors(keep=exec_end)
+            _close_file_descriptors(exec_end, spawn.passed)
             at_normal_priority()
             if spawn.directory is not None:
                 os.chdir(spawn.directory)
@@ -234,16 +236,22 @@ def at_normal_priority() -> None:
             os.setpriority(os.PRIO_PROCESS, 0, 0)
 
 
-def _close_file_descriptors(keep: int) -> None:
+def _close_file_descriptors(exec_end: int, passed: tuple[int, ...]) -> None:
     """
-    Everything above stderr but `keep`: the program inherits none of the
-    parent's files. `keep` closes on exec by itself.
+    Everything above stderr but `exec_end` and `passed`: the program
+    inherits `passed` and none of the parent's other files. `exec_end`
+    closes on exec by itself.
     """
     max_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[-1]
+    start = 3
+    for fd in sorted({exec_end, *passed}):
+        os.closerange(start, fd)
+        start = fd + 1
     try:
-        os.closerange(keep + 1, max_fd)
+        os.closerange(start, max_fd)
     except OverflowError:
         # macOS can report a limit closerange does not take,
         # 9223372036854775807. 4096 is what Linux reports.
-        os.closerange(keep + 1, 4096)
-    os.closerange(3, keep)
+        os.closerange(start, 4096)
+    for fd in passed:
+        os.set_inheritable(fd, True)
