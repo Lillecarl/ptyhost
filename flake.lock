@@ -3,11 +3,11 @@
     "aid": {
       "flake": false,
       "locked": {
-        "lastModified": 1794991124,
-        "narHash": "sha256-o3CJnfR0hHVlx3xcBEvg8ioxJHpDiUyt4ojzgz+sRsM=",
+        "lastModified": 1794992858,
+        "narHash": "sha256-eb0Y72c6KpEkX86YLEmE3id2S0X1pOWUE9sRdN08YPs=",
         "owner": "Lillecarl",
         "repo": "aid",
-        "rev": "0942f5d14b3208e30e39bcad63344eb6f0811a52",
+        "rev": "6035976cee4491798c755fe375f611660a9758f6",
         "type": "github"
       },
       "original": {
@@ -90,11 +90,11 @@
         "qutebrowser": "qutebrowser"
       },
       "locked": {
-        "lastModified": 1794992082,
-        "narHash": "sha256-SzL1OaKGPer5Q86dr2ySzBpN+gc1mJohb6UZxUrlLXw=",
+        "lastModified": 1794993058,
+        "narHash": "sha256-/wftVebgf4APwXtjGSUKcx1Bk0Gl3GAy4+xk/+Hhtic=",
         "owner": "Lillecarl",
         "repo": "pyterm",
-        "rev": "edcf66701894085e90f0e68fe25dfe7e15b35ca3",
+        "rev": "48b40346eca2e2e3406c001a598dd572dcf4a853",
         "type": "github"
       },
       "original": {
