@@ -8,6 +8,9 @@ input and a resize, so a recording loses nothing it had, except what an
 asciicast player does not draw: an image or another extension is only
 bytes to it.
 
+**The keys stay out unless asked for.** A key a person typed can be a
+password, and asciinema records no input unless its config says so.
+
 **The idle limit goes in the header and the times stay true.** That is
 asciinema's own rule: a player shortens each pause longer than the
 limit, so a person can change the limit later without the recording.
@@ -43,11 +46,12 @@ def _header(recording: dict, version: int, idle_time_limit: float | None) -> dic
     return header
 
 
-def asciicast(recording: dict, version: int = 3, idle_time_limit: float | None = None) -> str:
+def asciicast(recording: dict, version: int = 3, idle_time_limit: float | None = None, keys: bool = False) -> str:
     """
     The asciicast of `recording`, which is what a `.session.json` holds.
 
     `idle_time_limit` replaces the one the recording carries, if any.
+    `keys` keeps what was typed, as input events.
     """
     if version not in (2, 3):
         raise ValueError("asciicast version %r: only 2 and 3 are written" % version)
@@ -61,7 +65,7 @@ def asciicast(recording: dict, version: int = 3, idle_time_limit: float | None =
     decoders = {kind: codecs.getincrementaldecoder("utf-8")("replace") for kind in ("out", "in")}
     previous = 0
     for seconds, kind, data in recording["events"]:
-        if kind not in CODES:
+        if kind not in CODES or (kind == "in" and not keys):
             continue
         text = data if kind == "size" else decoders[kind].decode(base64.b64decode(data))
         if not text:
