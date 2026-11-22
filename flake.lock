@@ -50,11 +50,11 @@
     "prompt-toolkit": {
       "flake": false,
       "locked": {
-        "lastModified": 1795168268,
-        "narHash": "sha256-EqwRnzQ8HxO9DbM/jRwcf6lHYe7ADk/SPFBEUySCk+w=",
+        "lastModified": 1795369972,
+        "narHash": "sha256-hh1grw7kcxGjpy9GR8dNMJvfcKfjB8wYpC6Emlwbe0s=",
         "owner": "Lillecarl",
         "repo": "python-prompt-toolkit",
-        "rev": "ff872f345db15a5909a250480195ff4f9be77f65",
+        "rev": "f46fabd6f62618351da9078977b0c620b4c39c73",
         "type": "github"
       },
       "original": {
@@ -90,11 +90,11 @@
         "qutebrowser": "qutebrowser"
       },
       "locked": {
-        "lastModified": 1795369834,
-        "narHash": "sha256-E0dAwzrKQIziC2+6qLqsdeHdpUz8wqX4xtz6hK/JrBM=",
+        "lastModified": 1795370224,
+        "narHash": "sha256-aT/gSUossXYY+DWPNMeJvzvrqci/mhtMDHhFmv0Jj2M=",
         "owner": "Lillecarl",
         "repo": "pyterm",
-        "rev": "dc43a62e2e43984b74d7099fe3f77b8f4d0ecc40",
+        "rev": "d94ecbc40c4ac5082c04cd1f14d213347a3c371c",
         "type": "github"
       },
       "original": {
